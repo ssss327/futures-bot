@@ -1,0 +1,1966 @@
+import pandas as pd
+import numpy as np
+from typing import Dict, List, Tuple, Optional
+from dataclasses import dataclass
+from config import Config
+
+@dataclass
+class SmartMoneySignal:
+    signal_type: str  # 'BUY' or 'SELL'
+    confidence: float  # 0-100 percentage
+    entry_price: float
+    stop_loss: float
+    take_profit: float
+    leverage: int
+    matched_concepts: List[str]
+    timestamp: pd.Timestamp
+    symbol: str  # Add symbol to the signal
+    
+class SmartMoneyAnalyzer:
+    def __init__(self):
+        self.lookback_periods = Config.SMC_LOOKBACK_PERIODS
+        self.order_block_threshold = Config.ORDER_BLOCK_THRESHOLD
+        self.fvg_min_size = Config.FVG_MIN_SIZE
+        self.liquidity_threshold = Config.LIQUIDITY_THRESHOLD
+        
+    async def analyze_multi_timeframe(self, data_fetcher, symbol: str, current_price: float, volatility: float) -> Optional[SmartMoneySignal]:
+        """Multi-timeframe analysis following Smart Money methodology"""
+        
+        # Fetch data for all timeframes
+        timeframes = {
+            'D1': await data_fetcher.fetch_ohlcv(symbol, '1d', 100),    # Daily - overall bias
+            'H4': await data_fetcher.fetch_ohlcv(symbol, '4h', 200),    # 4H - medium-term structure  
+            'H1': await data_fetcher.fetch_ohlcv(symbol, '1h', 300),    # 1H - intraday range
+            'M15': await data_fetcher.fetch_ohlcv(symbol, '15m', 400),  # 15M - main working chart
+            'M5': await data_fetcher.fetch_ohlcv(symbol, '5m', 200),    # 5M - entry confirmation
+        }
+        
+        # Validate we have sufficient data - VERY flexible for newer tokens
+        valid_timeframes = {}
+        min_required_data = {'D1': 7, 'H4': 15, 'H1': 25, 'M15': 50, 'M5': 25}
+        
+        for tf, df in timeframes.items():
+            min_required = min_required_data.get(tf, 25)
+            if not df.empty and len(df) >= min_required:
+                valid_timeframes[tf] = df
+            else:
+                # Only show messages for debugging, don't spam
+                if len(df) == 0:
+                    print(f"No {tf} data for {symbol}")
+        
+        # Need at least 2 timeframes for analysis (more flexible)
+        if len(valid_timeframes) < 2:
+            # Fallback: try single timeframe analysis with M15 or M5 data
+            for tf in ['M15', 'M5', 'H1']:
+                if tf in timeframes and len(timeframes[tf]) >= 10:
+                    print(f"Using fallback single-timeframe analysis for {symbol} ({tf})")
+                    return self.analyze(timeframes[tf], symbol, current_price, volatility)
+            return None
+        
+        # Use only valid timeframes
+        timeframes = valid_timeframes
+        # Multi-timeframe analysis proceeding normally
+        
+        # Step 1: D1 Analysis - Overall Bias & Major Levels (if available)
+        daily_analysis = self._analyze_daily_bias(timeframes['D1'], current_price) if 'D1' in timeframes else None
+        
+        # Step 2: H4 Analysis - Medium-term Structure (if available)
+        h4_analysis = self._analyze_h4_structure(timeframes['H4'], current_price, daily_analysis) if 'H4' in timeframes else None
+        
+        # Step 3: H1 Analysis - Intraday Range & Refined Levels (if available)
+        h1_analysis = self._analyze_h1_intraday(timeframes['H1'], current_price, h4_analysis) if 'H1' in timeframes else None
+        
+        # Step 4: M15 Analysis - Main Working Chart & Entry Scenarios (if available)
+        m15_analysis = self._analyze_m15_entries(timeframes['M15'], current_price, h1_analysis) if 'M15' in timeframes else None
+        
+        # Step 5: M5 Analysis - Entry Confirmation & Precision (if available)
+        m5_analysis = self._analyze_m5_confirmation(timeframes['M5'], current_price, m15_analysis) if 'M5' in timeframes else None
+        
+        # Generate multi-timeframe signal
+        signal = self._generate_mtf_signal(
+            timeframes, symbol, current_price, volatility,
+            daily_analysis, h4_analysis, h1_analysis, m15_analysis, m5_analysis
+        )
+        
+        return signal
+    
+    def analyze(self, df: pd.DataFrame, symbol: str, current_price: float, volatility: float) -> Optional[SmartMoneySignal]:
+        """Legacy single timeframe analysis - kept for compatibility"""
+        if len(df) < 10:  # Much more flexible - only need 10 candles minimum
+            return None
+        
+        # Calculate all smart money indicators
+        market_structure = self._analyze_market_structure(df)
+        order_blocks = self._identify_order_blocks(df)
+        fair_value_gaps = self._identify_fair_value_gaps(df)
+        liquidity_zones = self._identify_liquidity_zones(df)
+        supply_demand = self._identify_supply_demand_zones(df)
+        inducement_patterns = self._identify_inducement(df)
+        
+        # Advanced SMC concepts
+        liquidity_grabs = self._identify_liquidity_grabs(df)
+        breaker_blocks = self._identify_breaker_blocks(df, order_blocks)
+        mitigation_blocks = self._identify_mitigation_blocks(df, order_blocks)
+        change_of_character = self._identify_change_of_character(df)
+        break_of_structure = self._identify_break_of_structure(df)
+        displacement = self._identify_displacement(df)
+        premium_discount = self._analyze_premium_discount(df, current_price)
+        
+        # Complete SMC implementation
+        equal_levels = self._identify_equal_highs_lows(df)
+        liquidity_pools = self._identify_liquidity_pools(df)
+        flip_zones = self._identify_flip_zones(df, order_blocks)
+        rbd_dbr_patterns = self._identify_rbd_dbr_patterns(df)
+        market_phases = self._analyze_market_phases(df)
+        session_analysis = self._analyze_session_bias(df)
+        kill_zones = self._identify_kill_zones(df)
+        wyckoff_patterns = self._identify_wyckoff_patterns(df)
+        smt_divergence = self._analyze_smt_divergence(df)
+        turtle_soup = self._identify_turtle_soup(df)
+        judas_swing = self._identify_judas_swing(df)
+        volume_imbalances = self._identify_volume_imbalances(df)
+        internal_external_structure = self._analyze_internal_external_structure(df)
+        
+        # Generate signal based on confluence
+        signal = self._generate_signal(
+            df, symbol, current_price, volatility,
+            market_structure, order_blocks, fair_value_gaps,
+            liquidity_zones, supply_demand, inducement_patterns,
+            liquidity_grabs, breaker_blocks, mitigation_blocks,
+            change_of_character, break_of_structure, displacement, premium_discount,
+            equal_levels, liquidity_pools, flip_zones, rbd_dbr_patterns,
+            market_phases, session_analysis, kill_zones, wyckoff_patterns,
+            smt_divergence, turtle_soup, judas_swing, volume_imbalances,
+            internal_external_structure
+        )
+        
+        return signal
+    
+    def _analyze_market_structure(self, df: pd.DataFrame) -> Dict:
+        """Analyze market structure - Higher Highs/Lower Lows"""
+        highs = df['high'].rolling(window=5).max()
+        lows = df['low'].rolling(window=5).min()
+        
+        # Identify swing highs and lows
+        swing_highs = df[df['high'] == highs]['high']
+        swing_lows = df[df['low'] == lows]['low']
+        
+        # Determine trend
+        if len(swing_highs) >= 2 and len(swing_lows) >= 2:
+            recent_highs = swing_highs.tail(2)
+            recent_lows = swing_lows.tail(2)
+            
+            higher_highs = recent_highs.iloc[-1] > recent_highs.iloc[-2]
+            higher_lows = recent_lows.iloc[-1] > recent_lows.iloc[-2]
+            
+            if higher_highs and higher_lows:
+                trend = 'BULLISH'
+            elif not higher_highs and not higher_lows:
+                trend = 'BEARISH'
+            else:
+                trend = 'RANGING'
+        else:
+            trend = 'UNCLEAR'
+        
+        return {
+            'trend': trend,
+            'swing_highs': swing_highs.tail(5).tolist(),
+            'swing_lows': swing_lows.tail(5).tolist()
+        }
+    
+    def _identify_order_blocks(self, df: pd.DataFrame) -> List[Dict]:
+        """Identify order blocks - areas where institutional orders are placed"""
+        order_blocks = []
+        
+        # Look for significant candles with large volume
+        df['volume_ma'] = df['volume'].rolling(window=20).mean()
+        df['volume_ratio'] = df['volume'] / df['volume_ma']
+        
+        # Identify strong bullish/bearish candles
+        strong_candles = df[df['volume_ratio'] > self.order_block_threshold]
+        
+        for idx, candle in strong_candles.iterrows():
+            body_size = abs(candle['close'] - candle['open'])
+            total_range = candle['high'] - candle['low']
+            
+            if body_size / total_range > 0.7:  # Strong directional move
+                order_block = {
+                    'timestamp': idx,
+                    'type': 'BULLISH' if candle['close'] > candle['open'] else 'BEARISH',
+                    'high': candle['high'],
+                    'low': candle['low'],
+                    'volume': candle['volume'],
+                    'strength': candle['volume_ratio']
+                }
+                order_blocks.append(order_block)
+        
+        return order_blocks[-10:]  # Keep last 10 order blocks
+    
+    def _identify_fair_value_gaps(self, df: pd.DataFrame) -> List[Dict]:
+        """Identify Fair Value Gaps (FVG) - price gaps that need to be filled"""
+        fvgs = []
+        
+        for i in range(2, len(df)):
+            prev_candle = df.iloc[i-2]
+            curr_candle = df.iloc[i-1]
+            next_candle = df.iloc[i]
+            
+            # Bullish FVG: prev_high < next_low
+            if prev_candle['high'] < next_candle['low']:
+                gap_size = (next_candle['low'] - prev_candle['high']) / prev_candle['high']
+                if gap_size > self.fvg_min_size / 100:
+                    fvgs.append({
+                        'timestamp': df.index[i],
+                        'type': 'BULLISH',
+                        'top': next_candle['low'],
+                        'bottom': prev_candle['high'],
+                        'gap_size': gap_size
+                    })
+            
+            # Bearish FVG: prev_low > next_high
+            elif prev_candle['low'] > next_candle['high']:
+                gap_size = (prev_candle['low'] - next_candle['high']) / next_candle['high']
+                if gap_size > self.fvg_min_size / 100:
+                    fvgs.append({
+                        'timestamp': df.index[i],
+                        'type': 'BEARISH',
+                        'top': prev_candle['low'],
+                        'bottom': next_candle['high'],
+                        'gap_size': gap_size
+                    })
+        
+        return fvgs[-5:]  # Keep last 5 FVGs
+    
+    def _identify_liquidity_zones(self, df: pd.DataFrame) -> List[Dict]:
+        """Identify liquidity zones - areas of high trading activity"""
+        liquidity_zones = []
+        
+        # Calculate volume profile approximation
+        price_levels = np.linspace(df['low'].min(), df['high'].max(), 50)
+        volume_profile = np.zeros(len(price_levels))
+        
+        for idx, row in df.iterrows():
+            for i, price in enumerate(price_levels):
+                if row['low'] <= price <= row['high']:
+                    volume_profile[i] += row['volume']
+        
+        # Find high volume areas
+        volume_threshold = np.mean(volume_profile) * self.liquidity_threshold
+        high_volume_indices = np.where(volume_profile > volume_threshold)[0]
+        
+        for idx in high_volume_indices:
+            liquidity_zones.append({
+                'price_level': price_levels[idx],
+                'volume': volume_profile[idx],
+                'type': 'HIGH_LIQUIDITY'
+            })
+        
+        return liquidity_zones
+    
+    def _identify_supply_demand_zones(self, df: pd.DataFrame) -> Dict:
+        """Identify supply and demand zones"""
+        # Use pivot points to identify potential S&D zones
+        pivot_window = 10
+        
+        highs = df['high'].rolling(window=pivot_window, center=True).max()
+        lows = df['low'].rolling(window=pivot_window, center=True).min()
+        
+        supply_zones = df[df['high'] == highs]['high'].tail(5)
+        demand_zones = df[df['low'] == lows]['low'].tail(5)
+        
+        return {
+            'supply_zones': supply_zones.tolist(),
+            'demand_zones': demand_zones.tolist()
+        }
+    
+    def _identify_inducement(self, df: pd.DataFrame) -> Dict:
+        """Identify inducement patterns - stop hunting before real moves"""
+        inducement_signals = []
+        
+        # Look for rapid moves followed by reversals
+        df['price_change'] = df['close'].pct_change()
+        df['volatility'] = df['price_change'].rolling(window=10).std()
+        
+        for i in range(10, len(df)):
+            recent_changes = df['price_change'].iloc[i-5:i+1]
+            
+            # Look for sudden spike followed by reversal
+            if abs(recent_changes.iloc[-1]) > 2 * df['volatility'].iloc[i]:
+                inducement_signals.append({
+                    'timestamp': df.index[i],
+                    'type': 'LIQUIDITY_GRAB',
+                    'direction': 'UP' if recent_changes.iloc[-1] > 0 else 'DOWN',
+                    'magnitude': abs(recent_changes.iloc[-1])
+                })
+        
+        return {'inducement_signals': inducement_signals[-3:]}
+    
+    def _identify_liquidity_grabs(self, df: pd.DataFrame) -> Dict:
+        """Identify liquidity grabs/stop hunts - spikes beyond significant levels"""
+        liquidity_grabs = []
+        
+        # Find swing highs and lows
+        swing_high_window = 5
+        swing_low_window = 5
+        
+        for i in range(swing_high_window, len(df) - swing_high_window):
+            current_candle = df.iloc[i]
+            
+            # Check for liquidity grab above previous high
+            left_highs = df['high'].iloc[i-swing_high_window:i]
+            right_highs = df['high'].iloc[i+1:i+swing_high_window+1]
+            
+            if (current_candle['high'] > left_highs.max() and 
+                current_candle['high'] > right_highs.max() and
+                current_candle['close'] < current_candle['open']):  # Rejection candle
+                
+                liquidity_grabs.append({
+                    'timestamp': df.index[i],
+                    'type': 'SELL_SIDE_LIQUIDITY_GRAB',
+                    'price': current_candle['high'],
+                    'rejection_strength': (current_candle['high'] - current_candle['close']) / current_candle['high']
+                })
+            
+            # Check for liquidity grab below previous low
+            left_lows = df['low'].iloc[i-swing_low_window:i]
+            right_lows = df['low'].iloc[i+1:i+swing_low_window+1]
+            
+            if (current_candle['low'] < left_lows.min() and 
+                current_candle['low'] < right_lows.min() and
+                current_candle['close'] > current_candle['open']):  # Rejection candle
+                
+                liquidity_grabs.append({
+                    'timestamp': df.index[i],
+                    'type': 'BUY_SIDE_LIQUIDITY_GRAB',
+                    'price': current_candle['low'],
+                    'rejection_strength': (current_candle['close'] - current_candle['low']) / current_candle['low']
+                })
+        
+        return {'liquidity_grabs': liquidity_grabs[-5:]}
+    
+    def _identify_breaker_blocks(self, df: pd.DataFrame, order_blocks: List[Dict]) -> Dict:
+        """Identify breaker blocks - failed order blocks that become resistance/support"""
+        breaker_blocks = []
+        
+        for ob in order_blocks:
+            ob_timestamp = ob['timestamp']
+            ob_high = ob['high']
+            ob_low = ob['low']
+            ob_type = ob['type']
+            
+            # Check if order block was broken
+            future_data = df[df.index > ob_timestamp]
+            
+            if len(future_data) > 0:
+                if ob_type == 'BULLISH':
+                    # Check if price broke below the bullish order block
+                    broke_below = future_data['low'].min() < ob_low
+                    if broke_below:
+                        breaker_blocks.append({
+                            'timestamp': ob_timestamp,
+                            'type': 'BEARISH_BREAKER',
+                            'high': ob_high,
+                            'low': ob_low,
+                            'original_type': 'BULLISH'
+                        })
+                
+                elif ob_type == 'BEARISH':
+                    # Check if price broke above the bearish order block
+                    broke_above = future_data['high'].max() > ob_high
+                    if broke_above:
+                        breaker_blocks.append({
+                            'timestamp': ob_timestamp,
+                            'type': 'BULLISH_BREAKER',
+                            'high': ob_high,
+                            'low': ob_low,
+                            'original_type': 'BEARISH'
+                        })
+        
+        return {'breaker_blocks': breaker_blocks[-5:]}
+    
+    def _identify_mitigation_blocks(self, df: pd.DataFrame, order_blocks: List[Dict]) -> Dict:
+        """Identify mitigation blocks - order blocks being retested"""
+        mitigation_blocks = []
+        current_price = df['close'].iloc[-1]
+        
+        for ob in order_blocks:
+            ob_high = ob['high']
+            ob_low = ob['low']
+            ob_type = ob['type']
+            
+            # Check if current price is near the order block (within 0.5%)
+            if ob_type == 'BULLISH':
+                if ob_low <= current_price <= ob_high * 1.005:
+                    mitigation_blocks.append({
+                        'timestamp': ob['timestamp'],
+                        'type': 'BULLISH_MITIGATION',
+                        'high': ob_high,
+                        'low': ob_low,
+                        'distance_to_price': abs(current_price - ob_low) / current_price
+                    })
+            
+            elif ob_type == 'BEARISH':
+                if ob_high >= current_price >= ob_low * 0.995:
+                    mitigation_blocks.append({
+                        'timestamp': ob['timestamp'],
+                        'type': 'BEARISH_MITIGATION',
+                        'high': ob_high,
+                        'low': ob_low,
+                        'distance_to_price': abs(current_price - ob_high) / current_price
+                    })
+        
+        return {'mitigation_blocks': mitigation_blocks}
+    
+    def _identify_change_of_character(self, df: pd.DataFrame) -> Dict:
+        """Identify Change of Character (ChoCh) - trend change signals"""
+        choch_signals = []
+        
+        # Calculate swing points
+        window = 10
+        swing_highs = []
+        swing_lows = []
+        
+        for i in range(window, len(df) - window):
+            high_window = df['high'].iloc[i-window:i+window+1]
+            low_window = df['low'].iloc[i-window:i+window+1]
+            
+            if df['high'].iloc[i] == high_window.max():
+                swing_highs.append((df.index[i], df['high'].iloc[i]))
+            
+            if df['low'].iloc[i] == low_window.min():
+                swing_lows.append((df.index[i], df['low'].iloc[i]))
+        
+        # Identify ChoCh patterns
+        if len(swing_highs) >= 3 and len(swing_lows) >= 3:
+            recent_highs = swing_highs[-3:]
+            recent_lows = swing_lows[-3:]
+            
+            # Bullish ChoCh: Breaking above previous high after lower low
+            if (len(recent_highs) >= 2 and 
+                recent_highs[-1][1] > recent_highs[-2][1]):
+                choch_signals.append({
+                    'timestamp': recent_highs[-1][0],
+                    'type': 'BULLISH_CHOCH',
+                    'price': recent_highs[-1][1]
+                })
+            
+            # Bearish ChoCh: Breaking below previous low after higher high
+            if (len(recent_lows) >= 2 and 
+                recent_lows[-1][1] < recent_lows[-2][1]):
+                choch_signals.append({
+                    'timestamp': recent_lows[-1][0],
+                    'type': 'BEARISH_CHOCH',
+                    'price': recent_lows[-1][1]
+                })
+        
+        return {'choch_signals': choch_signals[-3:]}
+    
+    def _identify_break_of_structure(self, df: pd.DataFrame) -> Dict:
+        """Identify Break of Structure (BoS) - trend continuation signals"""
+        bos_signals = []
+        
+        # Similar to ChoCh but for continuation patterns
+        window = 8
+        
+        for i in range(window, len(df) - 1):
+            current_high = df['high'].iloc[i]
+            current_low = df['low'].iloc[i]
+            
+            # Look back for previous structure
+            lookback_highs = df['high'].iloc[i-window:i]
+            lookback_lows = df['low'].iloc[i-window:i]
+            
+            # Bullish BoS: New higher high in uptrend
+            if current_high > lookback_highs.max():
+                bos_signals.append({
+                    'timestamp': df.index[i],
+                    'type': 'BULLISH_BOS',
+                    'price': current_high
+                })
+            
+            # Bearish BoS: New lower low in downtrend
+            if current_low < lookback_lows.min():
+                bos_signals.append({
+                    'timestamp': df.index[i],
+                    'type': 'BEARISH_BOS',
+                    'price': current_low
+                })
+        
+        return {'bos_signals': bos_signals[-3:]}
+    
+    def _identify_displacement(self, df: pd.DataFrame) -> Dict:
+        """Identify displacement - strong directional moves"""
+        displacement_signals = []
+        
+        # Calculate average candle range
+        df['candle_range'] = df['high'] - df['low']
+        avg_range = df['candle_range'].rolling(window=20).mean()
+        
+        for i in range(20, len(df)):
+            current_range = df['candle_range'].iloc[i]
+            current_avg_range = avg_range.iloc[i]
+            
+            # Displacement criteria: candle range > 2x average range
+            if current_range > current_avg_range * 2:
+                displacement_type = 'BULLISH' if df['close'].iloc[i] > df['open'].iloc[i] else 'BEARISH'
+                
+                displacement_signals.append({
+                    'timestamp': df.index[i],
+                    'type': f'{displacement_type}_DISPLACEMENT',
+                    'range_ratio': current_range / current_avg_range,
+                    'high': df['high'].iloc[i],
+                    'low': df['low'].iloc[i]
+                })
+        
+        return {'displacement_signals': displacement_signals[-5:]}
+    
+    def _analyze_premium_discount(self, df: pd.DataFrame, current_price: float) -> Dict:
+        """Analyze if price is at premium or discount relative to range"""
+        # Calculate recent range (last 50 periods)
+        recent_data = df.tail(50)
+        range_high = recent_data['high'].max()
+        range_low = recent_data['low'].min()
+        range_mid = (range_high + range_low) / 2
+        
+        # Calculate Fibonacci levels
+        range_size = range_high - range_low
+        fib_levels = {
+            'fib_0': range_low,
+            'fib_236': range_low + (range_size * 0.236),
+            'fib_382': range_low + (range_size * 0.382),
+            'fib_50': range_mid,
+            'fib_618': range_low + (range_size * 0.618),
+            'fib_764': range_low + (range_size * 0.764),
+            'fib_100': range_high
+        }
+        
+        # Determine if price is at premium or discount
+        if current_price > fib_levels['fib_618']:
+            zone = 'PREMIUM'
+        elif current_price < fib_levels['fib_382']:
+            zone = 'DISCOUNT'
+        else:
+            zone = 'EQUILIBRIUM'
+        
+        return {
+            'zone': zone,
+            'fib_levels': fib_levels,
+            'current_price': current_price,
+            'range_high': range_high,
+            'range_low': range_low
+        }
+    
+    def _identify_equal_highs_lows(self, df: pd.DataFrame) -> Dict:
+        """Identify equal highs and lows - key liquidity levels"""
+        equal_highs = []
+        equal_lows = []
+        tolerance = 0.002  # 0.2% tolerance for "equal" levels
+        
+        # Find swing highs and lows
+        window = 5
+        for i in range(window, len(df) - window):
+            current_high = df['high'].iloc[i]
+            current_low = df['low'].iloc[i]
+            
+            # Check if this is a swing high
+            left_highs = df['high'].iloc[i-window:i]
+            right_highs = df['high'].iloc[i+1:i+window+1]
+            
+            if current_high >= left_highs.max() and current_high >= right_highs.max():
+                # Look for equal highs in recent data
+                for j in range(max(0, i-50), i):
+                    other_high = df['high'].iloc[j]
+                    if abs(current_high - other_high) / current_high < tolerance:
+                        equal_highs.append({
+                            'price': (current_high + other_high) / 2,
+                            'timestamps': [df.index[i], df.index[j]],
+                            'type': 'EQUAL_HIGHS',
+                            'strength': 2  # Number of touches
+                        })
+            
+            # Check if this is a swing low
+            left_lows = df['low'].iloc[i-window:i]
+            right_lows = df['low'].iloc[i+1:i+window+1]
+            
+            if current_low <= left_lows.min() and current_low <= right_lows.min():
+                # Look for equal lows in recent data
+                for j in range(max(0, i-50), i):
+                    other_low = df['low'].iloc[j]
+                    if abs(current_low - other_low) / current_low < tolerance:
+                        equal_lows.append({
+                            'price': (current_low + other_low) / 2,
+                            'timestamps': [df.index[i], df.index[j]],
+                            'type': 'EQUAL_LOWS',
+                            'strength': 2  # Number of touches
+                        })
+        
+        return {
+            'equal_highs': equal_highs[-5:],
+            'equal_lows': equal_lows[-5:]
+        }
+    
+    def _identify_liquidity_pools(self, df: pd.DataFrame) -> Dict:
+        """Identify liquidity pools - areas where stops are likely clustered"""
+        liquidity_pools = []
+        
+        # Recent swing highs and lows where stops are likely
+        equal_levels = self._identify_equal_highs_lows(df)
+        
+        # Buy-side liquidity pools (above equal highs)
+        for eq_high in equal_levels['equal_highs']:
+            liquidity_pools.append({
+                'price': eq_high['price'],
+                'type': 'BUY_SIDE_LIQUIDITY_POOL',
+                'strength': eq_high['strength'],
+                'description': 'Stops above equal highs'
+            })
+        
+        # Sell-side liquidity pools (below equal lows)
+        for eq_low in equal_levels['equal_lows']:
+            liquidity_pools.append({
+                'price': eq_low['price'],
+                'type': 'SELL_SIDE_LIQUIDITY_POOL',
+                'strength': eq_low['strength'],
+                'description': 'Stops below equal lows'
+            })
+        
+        return {'liquidity_pools': liquidity_pools}
+    
+    def _identify_flip_zones(self, df: pd.DataFrame, order_blocks: List[Dict]) -> Dict:
+        """Identify flip zones - support becomes resistance and vice versa"""
+        flip_zones = []
+        current_price = df['close'].iloc[-1]
+        
+        for ob in order_blocks:
+            ob_high = ob['high']
+            ob_low = ob['low']
+            ob_type = ob['type']
+            ob_timestamp = ob['timestamp']
+            
+            # Check if price has moved significantly away and returned
+            future_data = df[df.index > ob_timestamp]
+            
+            if len(future_data) > 10:
+                if ob_type == 'BULLISH':
+                    # Check if price moved above then came back down (flip to resistance)
+                    max_future = future_data['high'].max()
+                    if max_future > ob_high * 1.02 and current_price < ob_high:
+                        flip_zones.append({
+                            'price_level': ob_high,
+                            'type': 'SUPPORT_TO_RESISTANCE',
+                            'original_ob': ob,
+                            'strength': 'HIGH' if max_future > ob_high * 1.05 else 'MEDIUM'
+                        })
+                
+                elif ob_type == 'BEARISH':
+                    # Check if price moved below then came back up (flip to support)
+                    min_future = future_data['low'].min()
+                    if min_future < ob_low * 0.98 and current_price > ob_low:
+                        flip_zones.append({
+                            'price_level': ob_low,
+                            'type': 'RESISTANCE_TO_SUPPORT',
+                            'original_ob': ob,
+                            'strength': 'HIGH' if min_future < ob_low * 0.95 else 'MEDIUM'
+                        })
+        
+        return {'flip_zones': flip_zones}
+    
+    def _identify_rbd_dbr_patterns(self, df: pd.DataFrame) -> Dict:
+        """Identify Rally-Base-Drop and Drop-Base-Rally patterns"""
+        rbd_patterns = []
+        dbr_patterns = []
+        
+        window = 20
+        
+        for i in range(window*2, len(df) - window):
+            # Define three phases
+            phase1 = df.iloc[i-window*2:i-window]  # First move
+            base = df.iloc[i-window:i]             # Base/consolidation
+            phase3 = df.iloc[i:i+window]           # Final move
+            
+            # Rally-Base-Drop pattern
+            rally_condition = (phase1['close'].iloc[-1] > phase1['close'].iloc[0] * 1.02)
+            base_condition = (base['high'].max() - base['low'].min()) / base['close'].mean() < 0.03
+            drop_condition = (phase3['close'].iloc[-1] < phase3['close'].iloc[0] * 0.98)
+            
+            if rally_condition and base_condition and drop_condition:
+                rbd_patterns.append({
+                    'timestamp': df.index[i],
+                    'type': 'RALLY_BASE_DROP',
+                    'base_high': base['high'].max(),
+                    'base_low': base['low'].min(),
+                    'pattern_strength': abs(phase3['close'].iloc[-1] - phase1['close'].iloc[-1]) / phase1['close'].iloc[-1]
+                })
+            
+            # Drop-Base-Rally pattern
+            drop_condition = (phase1['close'].iloc[-1] < phase1['close'].iloc[0] * 0.98)
+            rally_condition = (phase3['close'].iloc[-1] > phase3['close'].iloc[0] * 1.02)
+            
+            if drop_condition and base_condition and rally_condition:
+                dbr_patterns.append({
+                    'timestamp': df.index[i],
+                    'type': 'DROP_BASE_RALLY',
+                    'base_high': base['high'].max(),
+                    'base_low': base['low'].min(),
+                    'pattern_strength': abs(phase3['close'].iloc[-1] - phase1['close'].iloc[-1]) / phase1['close'].iloc[-1]
+                })
+        
+        return {
+            'rbd_patterns': rbd_patterns[-3:],
+            'dbr_patterns': dbr_patterns[-3:]
+        }
+    
+    def _analyze_market_phases(self, df: pd.DataFrame) -> Dict:
+        """Analyze current market phase: trend, consolidation, or reversal"""
+        # Calculate various indicators
+        df['sma_20'] = df['close'].rolling(window=20).mean()
+        df['sma_50'] = df['close'].rolling(window=50).mean()
+        df['price_change'] = df['close'].pct_change()
+        df['volatility'] = df['price_change'].rolling(window=20).std()
+        
+        current_price = df['close'].iloc[-1]
+        sma_20 = df['sma_20'].iloc[-1]
+        sma_50 = df['sma_50'].iloc[-1]
+        recent_volatility = df['volatility'].iloc[-1]
+        avg_volatility = df['volatility'].rolling(window=50).mean().iloc[-1]
+        
+        # Determine phase
+        if recent_volatility < avg_volatility * 0.7:
+            phase = 'CONSOLIDATION'
+            confidence = 0.8
+        elif abs(current_price - sma_20) / sma_20 > 0.05:
+            phase = 'REVERSAL'
+            confidence = 0.7
+        elif sma_20 > sma_50 and current_price > sma_20:
+            phase = 'UPTREND'
+            confidence = 0.9
+        elif sma_20 < sma_50 and current_price < sma_20:
+            phase = 'DOWNTREND'
+            confidence = 0.9
+        else:
+            phase = 'TRANSITION'
+            confidence = 0.5
+        
+        return {
+            'current_phase': phase,
+            'confidence': confidence,
+            'volatility_ratio': recent_volatility / avg_volatility,
+            'trend_strength': abs(sma_20 - sma_50) / sma_50
+        }
+    
+    def _analyze_session_bias(self, df: pd.DataFrame) -> Dict:
+        """Analyze session bias and trading day structure"""
+        # For crypto, we'll simulate session analysis
+        current_time = df.index[-1]
+        hour = current_time.hour
+        
+        # Define sessions (UTC)
+        if 21 <= hour or hour < 5:  # Asia session
+            session = 'ASIA'
+        elif 7 <= hour < 15:  # London session
+            session = 'LONDON'
+        elif 13 <= hour < 21:  # New York session
+            session = 'NEW_YORK'
+        else:
+            session = 'TRANSITION'
+        
+        # Calculate daily bias
+        daily_data = df.tail(24 * 4)  # Last 24 hours (4 candles per hour for 15min)
+        daily_high = daily_data['high'].max()
+        daily_low = daily_data['low'].min()
+        current_price = df['close'].iloc[-1]
+        
+        daily_range_position = (current_price - daily_low) / (daily_high - daily_low)
+        
+        if daily_range_position > 0.7:
+            bias = 'BEARISH'  # High in range, expect pullback
+        elif daily_range_position < 0.3:
+            bias = 'BULLISH'  # Low in range, expect bounce
+        else:
+            bias = 'NEUTRAL'
+        
+        return {
+            'current_session': session,
+            'daily_bias': bias,
+            'daily_range_position': daily_range_position,
+            'session_volume': daily_data['volume'].tail(4).sum()
+        }
+    
+    def _identify_kill_zones(self, df: pd.DataFrame) -> Dict:
+        """Identify kill zones - high probability reversal times"""
+        kill_zones = []
+        current_time = df.index[-1]
+        hour = current_time.hour
+        minute = current_time.minute
+        
+        # Define kill zones (UTC)
+        kill_zone_times = [
+            {'start': (0, 0), 'end': (2, 0), 'name': 'ASIA_OPEN'},
+            {'start': (7, 0), 'end': (9, 0), 'name': 'LONDON_OPEN'},
+            {'start': (13, 0), 'end': (15, 0), 'name': 'NEW_YORK_OPEN'},
+            {'start': (20, 0), 'end': (22, 0), 'name': 'ASIA_CLOSE'}
+        ]
+        
+        current_time_minutes = hour * 60 + minute
+        
+        active_kill_zones = []
+        for kz in kill_zone_times:
+            start_minutes = kz['start'][0] * 60 + kz['start'][1]
+            end_minutes = kz['end'][0] * 60 + kz['end'][1]
+            
+            if start_minutes <= current_time_minutes <= end_minutes:
+                active_kill_zones.append({
+                    'name': kz['name'],
+                    'active': True,
+                    'expected_action': 'HIGH_PROBABILITY_REVERSAL'
+                })
+        
+        return {'active_kill_zones': active_kill_zones}
+    
+    def _identify_wyckoff_patterns(self, df: pd.DataFrame) -> Dict:
+        """Identify Wyckoff accumulation and distribution patterns"""
+        wyckoff_patterns = []
+        
+        # Look for accumulation pattern (Spring and Last Point of Support)
+        window = 50
+        if len(df) > window:
+            recent_data = df.tail(window)
+            
+            # Find potential accumulation
+            volume_ma = recent_data['volume'].rolling(window=10).mean()
+            high_volume_bars = recent_data[recent_data['volume'] > volume_ma * 1.5]
+            
+            if len(high_volume_bars) > 0:
+                # Look for spring (fake breakdown with high volume)
+                for idx in high_volume_bars.index:
+                    bar = df.loc[idx]
+                    if bar['low'] < recent_data['low'].rolling(window=20).min().loc[idx] and bar['close'] > bar['open']:
+                        wyckoff_patterns.append({
+                            'timestamp': idx,
+                            'type': 'WYCKOFF_SPRING',
+                            'pattern': 'ACCUMULATION',
+                            'signal': 'BULLISH'
+                        })
+                
+                # Look for upthrust (fake breakout with high volume)
+                for idx in high_volume_bars.index:
+                    bar = df.loc[idx]
+                    if bar['high'] > recent_data['high'].rolling(window=20).max().loc[idx] and bar['close'] < bar['open']:
+                        wyckoff_patterns.append({
+                            'timestamp': idx,
+                            'type': 'WYCKOFF_UPTHRUST',
+                            'pattern': 'DISTRIBUTION',
+                            'signal': 'BEARISH'
+                        })
+        
+        return {'wyckoff_patterns': wyckoff_patterns[-3:]}
+    
+    def _analyze_smt_divergence(self, df: pd.DataFrame) -> Dict:
+        """Analyze Smart Money Technique divergence"""
+        # For comprehensive SMT analysis, we'd need multiple timeframes
+        # Here we'll simulate by looking at price vs volume divergence
+        smt_signals = []
+        
+        if len(df) > 20:
+            # Calculate price momentum
+            df['price_momentum'] = df['close'].pct_change(5)
+            df['volume_momentum'] = df['volume'].pct_change(5)
+            
+            recent_data = df.tail(10)
+            
+            for i in range(5, len(recent_data)):
+                price_direction = recent_data['price_momentum'].iloc[i]
+                volume_direction = recent_data['volume_momentum'].iloc[i]
+                
+                # Bearish divergence: price up, volume down
+                if price_direction > 0.01 and volume_direction < -0.1:
+                    smt_signals.append({
+                        'timestamp': recent_data.index[i],
+                        'type': 'BEARISH_SMT_DIVERGENCE',
+                        'description': 'Price rising on decreasing volume'
+                    })
+                
+                # Bullish divergence: price down, volume up
+                elif price_direction < -0.01 and volume_direction > 0.1:
+                    smt_signals.append({
+                        'timestamp': recent_data.index[i],
+                        'type': 'BULLISH_SMT_DIVERGENCE',
+                        'description': 'Price falling on increasing volume'
+                    })
+        
+        return {'smt_signals': smt_signals[-3:]}
+    
+    def _identify_turtle_soup(self, df: pd.DataFrame) -> Dict:
+        """Identify turtle soup pattern - false breakout traps"""
+        turtle_soup_signals = []
+        
+        window = 20
+        for i in range(window, len(df) - 5):
+            # Get 20-day high/low
+            lookback_data = df.iloc[i-window:i]
+            day_20_high = lookback_data['high'].max()
+            day_20_low = lookback_data['low'].min()
+            
+            current_bar = df.iloc[i]
+            next_bars = df.iloc[i+1:i+6]
+            
+            # Turtle Soup Plus (bullish): Break below 20-day low then reverse up
+            if (current_bar['low'] < day_20_low and 
+                current_bar['close'] > current_bar['open'] and
+                len(next_bars) > 0 and next_bars['close'].iloc[0] > day_20_low):
+                
+                turtle_soup_signals.append({
+                    'timestamp': df.index[i],
+                    'type': 'TURTLE_SOUP_PLUS',
+                    'signal': 'BULLISH',
+                    'breakout_level': day_20_low,
+                    'reversal_confirmation': True
+                })
+            
+            # Turtle Soup Minus (bearish): Break above 20-day high then reverse down
+            elif (current_bar['high'] > day_20_high and 
+                  current_bar['close'] < current_bar['open'] and
+                  len(next_bars) > 0 and next_bars['close'].iloc[0] < day_20_high):
+                
+                turtle_soup_signals.append({
+                    'timestamp': df.index[i],
+                    'type': 'TURTLE_SOUP_MINUS',
+                    'signal': 'BEARISH',
+                    'breakout_level': day_20_high,
+                    'reversal_confirmation': True
+                })
+        
+        return {'turtle_soup_signals': turtle_soup_signals[-3:]}
+    
+    def _identify_judas_swing(self, df: pd.DataFrame) -> Dict:
+        """Identify Judas swing - false moves at session opens"""
+        judas_swings = []
+        
+        # Check for session open times (approximate for crypto)
+        for i in range(10, len(df) - 10):
+            current_time = df.index[i]
+            hour = current_time.hour
+            
+            # Check if this is near a session open
+            if hour in [0, 7, 13]:  # Asia, London, NY opens
+                current_bar = df.iloc[i]
+                prev_bars = df.iloc[i-5:i]
+                next_bars = df.iloc[i+1:i+11]
+                
+                prev_high = prev_bars['high'].max()
+                prev_low = prev_bars['low'].min()
+                
+                # Bullish Judas: Initial move down then strong reversal up
+                if (current_bar['low'] < prev_low and 
+                    len(next_bars) > 5 and 
+                    next_bars['high'].max() > prev_high):
+                    
+                    judas_swings.append({
+                        'timestamp': current_time,
+                        'type': 'BULLISH_JUDAS_SWING',
+                        'session': 'ASIA' if hour == 0 else 'LONDON' if hour == 7 else 'NEW_YORK',
+                        'fake_move': 'DOWN',
+                        'real_direction': 'UP'
+                    })
+                
+                # Bearish Judas: Initial move up then strong reversal down
+                elif (current_bar['high'] > prev_high and 
+                      len(next_bars) > 5 and 
+                      next_bars['low'].min() < prev_low):
+                    
+                    judas_swings.append({
+                        'timestamp': current_time,
+                        'type': 'BEARISH_JUDAS_SWING',
+                        'session': 'ASIA' if hour == 0 else 'LONDON' if hour == 7 else 'NEW_YORK',
+                        'fake_move': 'UP',
+                        'real_direction': 'DOWN'
+                    })
+        
+        return {'judas_swings': judas_swings[-3:]}
+    
+    def _identify_volume_imbalances(self, df: pd.DataFrame) -> Dict:
+        """Identify volume imbalances and inefficient price delivery"""
+        volume_imbalances = []
+        
+        # Calculate volume moving average
+        df['volume_ma'] = df['volume'].rolling(window=20).mean()
+        df['volume_ratio'] = df['volume'] / df['volume_ma']
+        
+        # Identify volume spikes with price gaps
+        for i in range(5, len(df)):
+            current_volume_ratio = df['volume_ratio'].iloc[i]
+            current_bar = df.iloc[i]
+            prev_bar = df.iloc[i-1]
+            
+            # High volume with gap
+            if current_volume_ratio > 2.0:
+                gap_up = current_bar['low'] > prev_bar['high']
+                gap_down = current_bar['high'] < prev_bar['low']
+                
+                if gap_up:
+                    volume_imbalances.append({
+                        'timestamp': df.index[i],
+                        'type': 'BULLISH_VOLUME_IMBALANCE',
+                        'gap_start': prev_bar['high'],
+                        'gap_end': current_bar['low'],
+                        'volume_ratio': current_volume_ratio
+                    })
+                elif gap_down:
+                    volume_imbalances.append({
+                        'timestamp': df.index[i],
+                        'type': 'BEARISH_VOLUME_IMBALANCE',
+                        'gap_start': prev_bar['low'],
+                        'gap_end': current_bar['high'],
+                        'volume_ratio': current_volume_ratio
+                    })
+        
+        return {'volume_imbalances': volume_imbalances[-5:]}
+    
+    def _analyze_internal_external_structure(self, df: pd.DataFrame) -> Dict:
+        """Analyze internal vs external market structure"""
+        # Internal structure: smaller timeframe structure
+        # External structure: larger timeframe structure
+        
+        # Simulate by using different lookback periods
+        internal_window = 20  # Short-term structure
+        external_window = 100  # Long-term structure
+        
+        # Internal structure analysis
+        internal_data = df.tail(internal_window)
+        internal_highs = internal_data['high'].rolling(window=5).max()
+        internal_lows = internal_data['low'].rolling(window=5).min()
+        
+        internal_trend = 'BULLISH' if internal_data['close'].iloc[-1] > internal_data['close'].iloc[0] else 'BEARISH'
+        
+        # External structure analysis
+        external_data = df.tail(external_window)
+        external_highs = external_data['high'].rolling(window=20).max()
+        external_lows = external_data['low'].rolling(window=20).min()
+        
+        external_trend = 'BULLISH' if external_data['close'].iloc[-1] > external_data['close'].iloc[0] else 'BEARISH'
+        
+        # Determine confluence
+        structure_alignment = internal_trend == external_trend
+        
+        return {
+            'internal_structure': {
+                'trend': internal_trend,
+                'strength': abs(internal_data['close'].iloc[-1] - internal_data['close'].iloc[0]) / internal_data['close'].iloc[0]
+            },
+            'external_structure': {
+                'trend': external_trend,
+                'strength': abs(external_data['close'].iloc[-1] - external_data['close'].iloc[0]) / external_data['close'].iloc[0]
+            },
+            'structure_alignment': structure_alignment,
+            'confluence_strength': 'HIGH' if structure_alignment else 'CONFLICTING'
+        }
+    
+    def _analyze_daily_bias(self, daily_df: pd.DataFrame, current_price: float) -> Dict:
+        """D1 Analysis: Define overall trend, daily highs/lows, major liquidity zones"""
+        
+        # Overall trend analysis
+        sma_20 = daily_df['close'].rolling(window=20).mean().iloc[-1]
+        sma_50 = daily_df['close'].rolling(window=50).mean().iloc[-1]
+        
+        if sma_20 > sma_50 and current_price > sma_20:
+            daily_bias = 'BULLISH'
+        elif sma_20 < sma_50 and current_price < sma_20:
+            daily_bias = 'BEARISH'
+        else:
+            daily_bias = 'NEUTRAL'
+        
+        # Daily highs and lows (last 30 days)
+        recent_daily = daily_df.tail(30)
+        daily_high = recent_daily['high'].max()
+        daily_low = recent_daily['low'].min()
+        
+        # Major liquidity zones on daily
+        daily_order_blocks = self._identify_order_blocks(daily_df)
+        major_liquidity_zones = []
+        
+        for ob in daily_order_blocks[-5:]:  # Last 5 major order blocks
+            major_liquidity_zones.append({
+                'level': (ob['high'] + ob['low']) / 2,
+                'type': f"DAILY_{ob['type']}_OB",
+                'strength': 'MAJOR',
+                'high': ob['high'],
+                'low': ob['low']
+            })
+        
+        # Weekly structure analysis
+        weekly_trend = self._get_weekly_structure(daily_df)
+        
+        return {
+            'timeframe': 'D1',
+            'daily_bias': daily_bias,
+            'daily_high': daily_high,
+            'daily_low': daily_low,
+            'daily_range': daily_high - daily_low,
+            'major_liquidity_zones': major_liquidity_zones,
+            'weekly_trend': weekly_trend,
+            'trend_strength': abs(sma_20 - sma_50) / sma_50,
+            'price_position_in_daily_range': (current_price - daily_low) / (daily_high - daily_low)
+        }
+    
+    def _analyze_h4_structure(self, h4_df: pd.DataFrame, current_price: float, daily_analysis: Dict) -> Dict:
+        """H4 Analysis: Medium-term market structure, major BOS/ChoCh, large order blocks and FVG"""
+        
+        # H4 Market Structure
+        h4_structure = self._analyze_market_structure(h4_df)
+        
+        # Major BOS/ChoCh on H4
+        h4_bos = self._identify_break_of_structure(h4_df)
+        h4_choch = self._identify_change_of_character(h4_df)
+        
+        # Large H4 Order Blocks
+        h4_order_blocks = self._identify_order_blocks(h4_df)
+        significant_obs = [ob for ob in h4_order_blocks if ob['strength'] > 2.0]  # High volume OBs
+        
+        # H4 Fair Value Gaps
+        h4_fvgs = self._identify_fair_value_gaps(h4_df)
+        major_fvgs = [fvg for fvg in h4_fvgs if fvg['gap_size'] > 0.002]  # Significant gaps
+        
+        # H4 vs Daily alignment
+        h4_daily_alignment = (
+            h4_structure['trend'] == daily_analysis['daily_bias'] or 
+            daily_analysis['daily_bias'] == 'NEUTRAL'
+        )
+        
+        # H4 swing levels
+        h4_swing_highs = h4_structure['swing_highs']
+        h4_swing_lows = h4_structure['swing_lows']
+        
+        return {
+            'timeframe': 'H4',
+            'h4_trend': h4_structure['trend'],
+            'h4_bos_signals': h4_bos['bos_signals'],
+            'h4_choch_signals': h4_choch['choch_signals'],
+            'significant_order_blocks': significant_obs,
+            'major_fvgs': major_fvgs,
+            'h4_swing_highs': h4_swing_highs,
+            'h4_swing_lows': h4_swing_lows,
+            'daily_alignment': h4_daily_alignment,
+            'confluence_strength': 'HIGH' if h4_daily_alignment else 'MEDIUM'
+        }
+    
+    def _analyze_h1_intraday(self, h1_df: pd.DataFrame, current_price: float, h4_analysis: Dict) -> Dict:
+        """H1 Analysis: Intraday dealing range, refine levels, intraday OB/FVG zones"""
+        
+        # Intraday dealing range (last 24 hours)
+        last_24h = h1_df.tail(24)
+        intraday_high = last_24h['high'].max()
+        intraday_low = last_24h['low'].min()
+        intraday_range = intraday_high - intraday_low
+        
+        # H1 Order Blocks and FVGs
+        h1_order_blocks = self._identify_order_blocks(h1_df)
+        h1_fvgs = self._identify_fair_value_gaps(h1_df)
+        
+        # Refined levels based on H4 structure
+        refined_levels = []
+        
+        # Add H4 swing levels as refined H1 levels
+        for high in h4_analysis['h4_swing_highs']:
+            if intraday_low <= high <= intraday_high:  # Within intraday range
+                refined_levels.append({
+                    'level': high,
+                    'type': 'H4_SWING_HIGH',
+                    'importance': 'HIGH'
+                })
+        
+        for low in h4_analysis['h4_swing_lows']:
+            if intraday_low <= low <= intraday_high:  # Within intraday range
+                refined_levels.append({
+                    'level': low,
+                    'type': 'H4_SWING_LOW',
+                    'importance': 'HIGH'
+                })
+        
+        # H1 specific patterns
+        h1_displacement = self._identify_displacement(h1_df)
+        h1_liquidity_grabs = self._identify_liquidity_grabs(h1_df)
+        
+        # Session analysis on H1
+        h1_session_analysis = self._analyze_session_bias(h1_df)
+        
+        return {
+            'timeframe': 'H1',
+            'intraday_high': intraday_high,
+            'intraday_low': intraday_low,
+            'intraday_range': intraday_range,
+            'dealing_range_position': (current_price - intraday_low) / intraday_range,
+            'h1_order_blocks': h1_order_blocks[-10:],  # Last 10 H1 OBs
+            'h1_fvgs': h1_fvgs,
+            'refined_levels': refined_levels,
+            'h1_displacement': h1_displacement,
+            'h1_liquidity_grabs': h1_liquidity_grabs,
+            'session_analysis': h1_session_analysis,
+            'h4_confluence': len([level for level in refined_levels if level['importance'] == 'HIGH'])
+        }
+    
+    def _analyze_m15_entries(self, m15_df: pd.DataFrame, current_price: float, h1_analysis: Dict) -> Dict:
+        """M15 Analysis: Main working chart - look for entry scenarios"""
+        
+        # Entry scenario detection
+        entry_scenarios = []
+        
+        # Scenario 1: Liquidity Grab + BOS
+        m15_liquidity_grabs = self._identify_liquidity_grabs(m15_df)
+        m15_bos = self._identify_break_of_structure(m15_df)
+        
+        if m15_liquidity_grabs['liquidity_grabs'] and m15_bos['bos_signals']:
+            latest_grab = m15_liquidity_grabs['liquidity_grabs'][-1]
+            latest_bos = m15_bos['bos_signals'][-1]
+            
+            # Check if BOS happened after liquidity grab
+            if latest_bos['timestamp'] > latest_grab['timestamp']:
+                entry_scenarios.append({
+                    'type': 'LIQUIDITY_GRAB_BOS',
+                    'direction': 'BUY' if latest_grab['type'] == 'BUY_SIDE_LIQUIDITY_GRAB' else 'SELL',
+                    'strength': 'HIGH',
+                    'grab_level': latest_grab['price'],
+                    'bos_level': latest_bos['price']
+                })
+        
+        # Scenario 2: Return to Order Block
+        m15_order_blocks = self._identify_order_blocks(m15_df)
+        m15_mitigation = self._identify_mitigation_blocks(m15_df, m15_order_blocks)
+        
+        for mitigation in m15_mitigation['mitigation_blocks']:
+            entry_scenarios.append({
+                'type': 'ORDER_BLOCK_RETURN',
+                'direction': 'BUY' if mitigation['type'] == 'BULLISH_MITIGATION' else 'SELL',
+                'strength': 'MEDIUM',
+                'ob_level': (mitigation['high'] + mitigation['low']) / 2,
+                'distance': mitigation['distance_to_price']
+            })
+        
+        # Scenario 3: FVG Fill Entry
+        m15_fvgs = self._identify_fair_value_gaps(m15_df)
+        for fvg in m15_fvgs:
+            if fvg['bottom'] <= current_price <= fvg['top']:  # Price in FVG
+                entry_scenarios.append({
+                    'type': 'FVG_FILL_ENTRY',
+                    'direction': 'BUY' if fvg['type'] == 'BULLISH' else 'SELL',
+                    'strength': 'MEDIUM',
+                    'fvg_top': fvg['top'],
+                    'fvg_bottom': fvg['bottom']
+                })
+        
+        # M15 market structure
+        m15_structure = self._analyze_market_structure(m15_df)
+        
+        # Premium/Discount on M15
+        m15_premium_discount = self._analyze_premium_discount(m15_df, current_price)
+        
+        return {
+            'timeframe': 'M15',
+            'entry_scenarios': entry_scenarios,
+            'm15_structure': m15_structure,
+            'm15_order_blocks': m15_order_blocks[-5:],
+            'm15_fvgs': m15_fvgs,
+            'premium_discount': m15_premium_discount,
+            'h1_level_confluence': self._check_h1_level_confluence(current_price, h1_analysis),
+            'entry_quality': 'HIGH' if len(entry_scenarios) >= 2 else 'MEDIUM' if entry_scenarios else 'LOW'
+        }
+    
+    def _analyze_m5_confirmation(self, m5_df: pd.DataFrame, current_price: float, m15_analysis: Dict) -> Dict:
+        """M5 Analysis: Entry confirmation, precise entry point, risk reduction"""
+        
+        # Precise entry confirmation signals
+        confirmation_signals = []
+        
+        # M5 Order blocks for precise entries
+        m5_order_blocks = self._identify_order_blocks(m5_df)
+        
+        # M5 FVG for precise entries
+        m5_fvgs = self._identify_fair_value_gaps(m5_df)
+        
+        # M5 Displacement for momentum confirmation
+        m5_displacement = self._identify_displacement(m5_df)
+        
+        # Entry confirmation based on M15 scenarios
+        for scenario in m15_analysis['entry_scenarios']:
+            if scenario['type'] == 'LIQUIDITY_GRAB_BOS':
+                # Look for M5 order block near BOS level
+                for ob in m5_order_blocks[-3:]:
+                    if abs(ob['low'] - scenario['bos_level']) / scenario['bos_level'] < 0.002:
+                        confirmation_signals.append({
+                            'type': 'M5_OB_CONFIRMATION',
+                            'scenario': scenario['type'],
+                            'precision_level': ob['low'] if scenario['direction'] == 'BUY' else ob['high'],
+                            'confidence': 'HIGH'
+                        })
+            
+            elif scenario['type'] == 'ORDER_BLOCK_RETURN':
+                # Look for M5 FVG or displacement near OB
+                for fvg in m5_fvgs[-2:]:
+                    if abs(fvg['bottom'] - scenario['ob_level']) / scenario['ob_level'] < 0.001:
+                        confirmation_signals.append({
+                            'type': 'M5_FVG_CONFIRMATION',
+                            'scenario': scenario['type'],
+                            'precision_level': fvg['bottom'] if scenario['direction'] == 'BUY' else fvg['top'],
+                            'confidence': 'MEDIUM'
+                        })
+        
+        # Risk reduction through M5 patterns
+        risk_factors = []
+        
+        # Check for M5 rejection patterns
+        recent_m5 = m5_df.tail(5)
+        for i in range(len(recent_m5)):
+            candle = recent_m5.iloc[i]
+            # Look for rejection wicks
+            body_size = abs(candle['close'] - candle['open'])
+            upper_wick = candle['high'] - max(candle['open'], candle['close'])
+            lower_wick = min(candle['open'], candle['close']) - candle['low']
+            
+            if upper_wick > body_size * 2 and body_size > 0:  # Strong upper rejection (avoid divide by zero)
+                risk_factors.append({
+                    'type': 'UPPER_REJECTION',
+                    'level': candle['high'],
+                    'strength': upper_wick / body_size
+                })
+            elif upper_wick > 0 and body_size == 0:  # Doji with upper wick
+                risk_factors.append({
+                    'type': 'UPPER_REJECTION',
+                    'level': candle['high'],
+                    'strength': 10  # High strength for doji rejection
+                })
+            
+            if lower_wick > body_size * 2 and body_size > 0:  # Strong lower rejection (avoid divide by zero)
+                risk_factors.append({
+                    'type': 'LOWER_REJECTION',
+                    'level': candle['low'],
+                    'strength': lower_wick / body_size
+                })
+            elif lower_wick > 0 and body_size == 0:  # Doji with lower wick
+                risk_factors.append({
+                    'type': 'LOWER_REJECTION',
+                    'level': candle['low'],
+                    'strength': 10  # High strength for doji rejection
+                })
+        
+        # M5 momentum analysis
+        m5_momentum = self._calculate_m5_momentum(m5_df)
+        
+        return {
+            'timeframe': 'M5',
+            'confirmation_signals': confirmation_signals,
+            'm5_order_blocks': m5_order_blocks[-3:],
+            'm5_fvgs': m5_fvgs[-3:],
+            'm5_displacement': m5_displacement,
+            'risk_factors': risk_factors,
+            'm5_momentum': m5_momentum,
+            'entry_precision': 'HIGH' if confirmation_signals else 'MEDIUM',
+            'risk_level': 'LOW' if len(risk_factors) == 0 else 'MEDIUM' if len(risk_factors) <= 2 else 'HIGH'
+        }
+    
+    def _get_weekly_structure(self, daily_df: pd.DataFrame) -> Dict:
+        """Analyze weekly structure from daily data"""
+        # Take last 7 days as weekly structure
+        weekly_data = daily_df.tail(7)
+        
+        weekly_high = weekly_data['high'].max()
+        weekly_low = weekly_data['low'].min()
+        weekly_open = weekly_data['open'].iloc[0]
+        weekly_close = weekly_data['close'].iloc[-1]
+        
+        weekly_trend = 'BULLISH' if weekly_close > weekly_open else 'BEARISH'
+        
+        return {
+            'weekly_trend': weekly_trend,
+            'weekly_high': weekly_high,
+            'weekly_low': weekly_low,
+            'weekly_range': weekly_high - weekly_low
+        }
+    
+    def _check_h1_level_confluence(self, current_price: float, h1_analysis: Dict) -> int:
+        """Check confluence with H1 refined levels"""
+        confluence_count = 0
+        
+        for level in h1_analysis['refined_levels']:
+            if abs(current_price - level['level']) / current_price < 0.005:  # Within 0.5%
+                confluence_count += 1
+        
+        return confluence_count
+    
+    def _calculate_m5_momentum(self, m5_df: pd.DataFrame) -> Dict:
+        """Calculate M5 momentum indicators"""
+        recent_m5 = m5_df.tail(10)
+        
+        # Price momentum
+        price_change = (recent_m5['close'].iloc[-1] - recent_m5['close'].iloc[0]) / recent_m5['close'].iloc[0]
+        
+        # Volume momentum
+        avg_volume = recent_m5['volume'].mean()
+        recent_volume = recent_m5['volume'].iloc[-1]
+        volume_ratio = recent_volume / avg_volume
+        
+        # Momentum direction
+        momentum_direction = 'BULLISH' if price_change > 0 else 'BEARISH'
+        momentum_strength = abs(price_change) * 100
+        
+        return {
+            'direction': momentum_direction,
+            'strength': momentum_strength,
+            'volume_confirmation': volume_ratio > 1.2,
+            'price_change_percent': price_change * 100
+        }
+    
+    def _generate_signal(self, df: pd.DataFrame, symbol: str, current_price: float, volatility: float,
+                        market_structure: Dict, order_blocks: List, fair_value_gaps: List,
+                        liquidity_zones: List, supply_demand: Dict, inducement: Dict,
+                        liquidity_grabs: Dict, breaker_blocks: Dict, mitigation_blocks: Dict,
+                        change_of_character: Dict, break_of_structure: Dict, displacement: Dict, 
+                        premium_discount: Dict, equal_levels: Dict, liquidity_pools: Dict, 
+                        flip_zones: Dict, rbd_dbr_patterns: Dict, market_phases: Dict,
+                        session_analysis: Dict, kill_zones: Dict, wyckoff_patterns: Dict,
+                        smt_divergence: Dict, turtle_soup: Dict, judas_swing: Dict,
+                        volume_imbalances: Dict, internal_external_structure: Dict) -> Optional[SmartMoneySignal]:
+        """Generate trading signal based on smart money confluence"""
+        
+        bullish_signals = 0
+        bearish_signals = 0
+        matched_concepts = []
+        
+        # Market Structure Analysis
+        if market_structure['trend'] == 'BULLISH':
+            bullish_signals += 2
+            matched_concepts.append('Bullish Market Structure')
+        elif market_structure['trend'] == 'BEARISH':
+            bearish_signals += 2
+            matched_concepts.append('Bearish Market Structure')
+        
+        # Order Block Analysis
+        recent_order_blocks = [ob for ob in order_blocks if ob['timestamp'] >= df.index[-20]]
+        for ob in recent_order_blocks:
+            if ob['type'] == 'BULLISH' and current_price >= ob['low']:
+                bullish_signals += 1
+                matched_concepts.append('Bullish Order Block')
+            elif ob['type'] == 'BEARISH' and current_price <= ob['high']:
+                bearish_signals += 1
+                matched_concepts.append('Bearish Order Block')
+        
+        # Fair Value Gap Analysis
+        unfilled_fvgs = []
+        for fvg in fair_value_gaps:
+            if fvg['type'] == 'BULLISH' and current_price < fvg['top']:
+                unfilled_fvgs.append(fvg)
+                if current_price >= fvg['bottom']:
+                    bullish_signals += 1
+                    matched_concepts.append('Bullish FVG')
+            elif fvg['type'] == 'BEARISH' and current_price > fvg['bottom']:
+                unfilled_fvgs.append(fvg)
+                if current_price <= fvg['top']:
+                    bearish_signals += 1
+                    matched_concepts.append('Bearish FVG')
+        
+        # Supply/Demand Zone Analysis
+        near_demand = any(abs(current_price - zone) / current_price < 0.005 for zone in supply_demand['demand_zones'])
+        near_supply = any(abs(current_price - zone) / current_price < 0.005 for zone in supply_demand['supply_zones'])
+        
+        if near_demand:
+            bullish_signals += 1
+            matched_concepts.append('Near Demand Zone')
+        if near_supply:
+            bearish_signals += 1
+            matched_concepts.append('Near Supply Zone')
+        
+        # Inducement Analysis
+        recent_inducements = inducement['inducement_signals']
+        if recent_inducements:
+            latest_inducement = recent_inducements[-1]
+            if latest_inducement['direction'] == 'DOWN':  # Bearish inducement often leads to bullish move
+                bullish_signals += 1
+                matched_concepts.append('Bearish Inducement (Bullish Signal)')
+            elif latest_inducement['direction'] == 'UP':  # Bullish inducement often leads to bearish move
+                bearish_signals += 1
+                matched_concepts.append('Bullish Inducement (Bearish Signal)')
+        
+        # Liquidity Grabs Analysis
+        recent_grabs = liquidity_grabs['liquidity_grabs']
+        if recent_grabs:
+            latest_grab = recent_grabs[-1]
+            if latest_grab['type'] == 'BUY_SIDE_LIQUIDITY_GRAB':
+                bullish_signals += 2  # Strong signal
+                matched_concepts.append('Buy-Side Liquidity Grab')
+            elif latest_grab['type'] == 'SELL_SIDE_LIQUIDITY_GRAB':
+                bearish_signals += 2  # Strong signal
+                matched_concepts.append('Sell-Side Liquidity Grab')
+        
+        # Breaker Blocks Analysis
+        active_breakers = breaker_blocks['breaker_blocks']
+        for breaker in active_breakers:
+            if breaker['type'] == 'BULLISH_BREAKER' and breaker['low'] <= current_price <= breaker['high']:
+                bullish_signals += 1
+                matched_concepts.append('Bullish Breaker Block')
+            elif breaker['type'] == 'BEARISH_BREAKER' and breaker['low'] <= current_price <= breaker['high']:
+                bearish_signals += 1
+                matched_concepts.append('Bearish Breaker Block')
+        
+        # Mitigation Blocks Analysis
+        active_mitigations = mitigation_blocks['mitigation_blocks']
+        for mitigation in active_mitigations:
+            if mitigation['type'] == 'BULLISH_MITIGATION':
+                bullish_signals += 2  # Strong confluence signal
+                matched_concepts.append('Bullish Order Block Mitigation')
+            elif mitigation['type'] == 'BEARISH_MITIGATION':
+                bearish_signals += 2  # Strong confluence signal
+                matched_concepts.append('Bearish Order Block Mitigation')
+        
+        # Change of Character Analysis
+        choch_signals = change_of_character['choch_signals']
+        if choch_signals:
+            latest_choch = choch_signals[-1]
+            if latest_choch['type'] == 'BULLISH_CHOCH':
+                bullish_signals += 3  # Very strong signal
+                matched_concepts.append('Bullish Change of Character')
+            elif latest_choch['type'] == 'BEARISH_CHOCH':
+                bearish_signals += 3  # Very strong signal
+                matched_concepts.append('Bearish Change of Character')
+        
+        # Break of Structure Analysis
+        bos_signals = break_of_structure['bos_signals']
+        if bos_signals:
+            latest_bos = bos_signals[-1]
+            if latest_bos['type'] == 'BULLISH_BOS':
+                bullish_signals += 2
+                matched_concepts.append('Bullish Break of Structure')
+            elif latest_bos['type'] == 'BEARISH_BOS':
+                bearish_signals += 2
+                matched_concepts.append('Bearish Break of Structure')
+        
+        # Displacement Analysis
+        displacement_signals_list = displacement['displacement_signals']
+        if displacement_signals_list:
+            latest_displacement = displacement_signals_list[-1]
+            if latest_displacement['type'] == 'BULLISH_DISPLACEMENT':
+                bullish_signals += 2
+                matched_concepts.append('Bullish Displacement')
+            elif latest_displacement['type'] == 'BEARISH_DISPLACEMENT':
+                bearish_signals += 2
+                matched_concepts.append('Bearish Displacement')
+        
+        # Premium/Discount Analysis
+        pd_zone = premium_discount['zone']
+        if pd_zone == 'DISCOUNT':
+            bullish_signals += 1
+            matched_concepts.append('Price at Discount (Buy Zone)')
+        elif pd_zone == 'PREMIUM':
+            bearish_signals += 1
+            matched_concepts.append('Price at Premium (Sell Zone)')
+        
+        # Equal Highs/Lows Analysis
+        near_equal_high = any(abs(current_price - eh['price']) / current_price < 0.01 for eh in equal_levels['equal_highs'])
+        near_equal_low = any(abs(current_price - el['price']) / current_price < 0.01 for el in equal_levels['equal_lows'])
+        
+        if near_equal_low:
+            bullish_signals += 1
+            matched_concepts.append('Near Equal Lows (Support)')
+        if near_equal_high:
+            bearish_signals += 1
+            matched_concepts.append('Near Equal Highs (Resistance)')
+        
+        # Liquidity Pools Analysis
+        for pool in liquidity_pools['liquidity_pools']:
+            distance = abs(current_price - pool['price']) / current_price
+            if distance < 0.015:  # Within 1.5%
+                if pool['type'] == 'BUY_SIDE_LIQUIDITY_POOL':
+                    bearish_signals += 1
+                    matched_concepts.append('Near Buy-Side Liquidity Pool')
+                elif pool['type'] == 'SELL_SIDE_LIQUIDITY_POOL':
+                    bullish_signals += 1
+                    matched_concepts.append('Near Sell-Side Liquidity Pool')
+        
+        # Flip Zones Analysis
+        for flip in flip_zones['flip_zones']:
+            distance = abs(current_price - flip['price_level']) / current_price
+            if distance < 0.01:  # Within 1%
+                if flip['type'] == 'SUPPORT_TO_RESISTANCE':
+                    bearish_signals += 1
+                    matched_concepts.append('At Flipped Resistance Zone')
+                elif flip['type'] == 'RESISTANCE_TO_SUPPORT':
+                    bullish_signals += 1
+                    matched_concepts.append('At Flipped Support Zone')
+        
+        # RBD/DBR Patterns Analysis
+        recent_rbd = rbd_dbr_patterns['rbd_patterns']
+        recent_dbr = rbd_dbr_patterns['dbr_patterns']
+        
+        if recent_rbd:
+            latest_rbd = recent_rbd[-1]
+            if current_price <= latest_rbd['base_low']:
+                bearish_signals += 2
+                matched_concepts.append('Rally-Base-Drop Pattern')
+        
+        if recent_dbr:
+            latest_dbr = recent_dbr[-1]
+            if current_price >= latest_dbr['base_high']:
+                bullish_signals += 2
+                matched_concepts.append('Drop-Base-Rally Pattern')
+        
+        # Market Phases Analysis
+        current_phase = market_phases['current_phase']
+        if current_phase in ['UPTREND']:
+            bullish_signals += 1
+            matched_concepts.append('Market in Uptrend')
+        elif current_phase in ['DOWNTREND']:
+            bearish_signals += 1
+            matched_concepts.append('Market in Downtrend')
+        elif current_phase == 'REVERSAL':
+            # Reversal phase - look for other signals to determine direction
+            matched_concepts.append('Market in Reversal Phase')
+        
+        # Session Analysis
+        session_bias = session_analysis['daily_bias']
+        current_session = session_analysis['current_session']
+        
+        if session_bias == 'BULLISH':
+            bullish_signals += 1
+            matched_concepts.append(f'Bullish {current_session} Session Bias')
+        elif session_bias == 'BEARISH':
+            bearish_signals += 1
+            matched_concepts.append(f'Bearish {current_session} Session Bias')
+        
+        # Kill Zones Analysis
+        active_kz = kill_zones['active_kill_zones']
+        if active_kz:
+            # In kill zone - expect reversals, so weight against current trend
+            matched_concepts.append(f'In {active_kz[0]["name"]} Kill Zone')
+            # Kill zones favor reversals, so add to opposite of current momentum
+            if len(df) > 5:
+                recent_momentum = df['close'].iloc[-1] - df['close'].iloc[-5]
+                if recent_momentum > 0:  # Recent upward momentum
+                    bearish_signals += 1
+                    matched_concepts.append('Kill Zone Reversal (Bearish)')
+                elif recent_momentum < 0:  # Recent downward momentum
+                    bullish_signals += 1
+                    matched_concepts.append('Kill Zone Reversal (Bullish)')
+        
+        # Wyckoff Patterns Analysis
+        wyckoff_signals = wyckoff_patterns['wyckoff_patterns']
+        if wyckoff_signals:
+            latest_wyckoff = wyckoff_signals[-1]
+            if latest_wyckoff['signal'] == 'BULLISH':
+                bullish_signals += 3  # Very strong signal
+                matched_concepts.append(f"Wyckoff {latest_wyckoff['type']}")
+            elif latest_wyckoff['signal'] == 'BEARISH':
+                bearish_signals += 3  # Very strong signal
+                matched_concepts.append(f"Wyckoff {latest_wyckoff['type']}")
+        
+        # SMT Divergence Analysis
+        smt_signals = smt_divergence['smt_signals']
+        if smt_signals:
+            latest_smt = smt_signals[-1]
+            if latest_smt['type'] == 'BULLISH_SMT_DIVERGENCE':
+                bullish_signals += 2
+                matched_concepts.append('Bullish SMT Divergence')
+            elif latest_smt['type'] == 'BEARISH_SMT_DIVERGENCE':
+                bearish_signals += 2
+                matched_concepts.append('Bearish SMT Divergence')
+        
+        # Turtle Soup Analysis
+        turtle_signals = turtle_soup['turtle_soup_signals']
+        if turtle_signals:
+            latest_turtle = turtle_signals[-1]
+            if latest_turtle['signal'] == 'BULLISH':
+                bullish_signals += 2
+                matched_concepts.append('Turtle Soup Plus (Bullish)')
+            elif latest_turtle['signal'] == 'BEARISH':
+                bearish_signals += 2
+                matched_concepts.append('Turtle Soup Minus (Bearish)')
+        
+        # Judas Swing Analysis
+        judas_signals = judas_swing['judas_swings']
+        if judas_signals:
+            latest_judas = judas_signals[-1]
+            if latest_judas['real_direction'] == 'UP':
+                bullish_signals += 2
+                matched_concepts.append(f"Judas Swing ({latest_judas['session']} Session)")
+            elif latest_judas['real_direction'] == 'DOWN':
+                bearish_signals += 2
+                matched_concepts.append(f"Judas Swing ({latest_judas['session']} Session)")
+        
+        # Volume Imbalances Analysis
+        vol_imbalances = volume_imbalances['volume_imbalances']
+        for imbalance in vol_imbalances:
+            if imbalance['type'] == 'BULLISH_VOLUME_IMBALANCE':
+                gap_start = imbalance['gap_start']
+                gap_end = imbalance['gap_end']
+                if gap_start <= current_price <= gap_end:
+                    bullish_signals += 1
+                    matched_concepts.append('In Bullish Volume Imbalance')
+            elif imbalance['type'] == 'BEARISH_VOLUME_IMBALANCE':
+                gap_start = imbalance['gap_start']
+                gap_end = imbalance['gap_end']
+                if gap_end <= current_price <= gap_start:
+                    bearish_signals += 1
+                    matched_concepts.append('In Bearish Volume Imbalance')
+        
+        # Internal/External Structure Analysis
+        structure_data = internal_external_structure
+        if structure_data['structure_alignment']:
+            if structure_data['internal_structure']['trend'] == 'BULLISH':
+                bullish_signals += 2
+                matched_concepts.append('Internal/External Structure Aligned (Bullish)')
+            elif structure_data['internal_structure']['trend'] == 'BEARISH':
+                bearish_signals += 2
+                matched_concepts.append('Internal/External Structure Aligned (Bearish)')
+        else:
+            # Conflicting structure - reduce confidence
+            matched_concepts.append('Internal/External Structure Conflicting')
+        
+        # Generate signal if sufficient confluence - LOWERED for more signals
+        total_signals = bullish_signals + bearish_signals
+        if total_signals < 1:  # Need at least 1 confluence (more sensitive)
+            return None
+        
+        if bullish_signals > bearish_signals:
+            signal_type = 'BUY'
+            confidence = min(95, (bullish_signals / max(total_signals, 1)) * 100)
+        else:
+            signal_type = 'SELL'
+            confidence = min(95, (bearish_signals / max(total_signals, 1)) * 100)
+        
+        # Calculate entry, stop loss, and take profit
+        entry_price = current_price
+        
+        # Dynamic stop loss based on volatility and recent price action
+        atr = df['high'].sub(df['low']).rolling(window=14).mean().iloc[-1]
+        stop_distance = max(atr * 1.5, current_price * volatility * 2)
+        
+        if signal_type == 'BUY':
+            stop_loss = current_price - stop_distance
+            take_profit = current_price + (stop_distance * Config.DEFAULT_TAKE_PROFIT_RATIO)
+        else:
+            stop_loss = current_price + stop_distance
+            take_profit = current_price - (stop_distance * Config.DEFAULT_TAKE_PROFIT_RATIO)
+        
+        # Calculate leverage based on confidence and volatility
+        base_leverage = min(Config.LEVERAGE_MAX, max(Config.LEVERAGE_MIN, int(confidence / 20)))
+        leverage = max(1, int(base_leverage / (volatility * 100)))  # Reduce leverage for high volatility
+        
+        return SmartMoneySignal(
+            signal_type=signal_type,
+            confidence=confidence,
+            entry_price=entry_price,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            leverage=leverage,
+            matched_concepts=matched_concepts,
+            timestamp=pd.Timestamp.now(),  # Use current time instead of old data timestamp
+            symbol=symbol
+        )
+    
+    def _generate_mtf_signal(self, timeframes: Dict, symbol: str, current_price: float, volatility: float,
+                           daily_analysis: Dict, h4_analysis: Dict, h1_analysis: Dict, 
+                           m15_analysis: Dict, m5_analysis: Dict) -> Optional[SmartMoneySignal]:
+        """Generate multi-timeframe confluence signal"""
+        
+        mtf_bullish_signals = 0
+        mtf_bearish_signals = 0
+        mtf_matched_concepts = []
+        
+        # D1 Analysis Scoring (Highest weight - 5 points)
+        daily_bias = daily_analysis['daily_bias']
+        if daily_bias == 'BULLISH':
+            mtf_bullish_signals += 5
+            mtf_matched_concepts.append('Daily Bullish Bias (D1)')
+        elif daily_bias == 'BEARISH':
+            mtf_bearish_signals += 5
+            mtf_matched_concepts.append('Daily Bearish Bias (D1)')
+        
+        # Weekly alignment bonus
+        if daily_analysis['weekly_trend']['weekly_trend'] == daily_bias:
+            if daily_bias == 'BULLISH':
+                mtf_bullish_signals += 2
+                mtf_matched_concepts.append('Weekly-Daily Alignment (Bullish)')
+            elif daily_bias == 'BEARISH':
+                mtf_bearish_signals += 2
+                mtf_matched_concepts.append('Weekly-Daily Alignment (Bearish)')
+        
+        # H4 Analysis Scoring (High weight - 4 points)
+        h4_trend = h4_analysis['h4_trend']
+        if h4_trend == 'BULLISH':
+            mtf_bullish_signals += 4
+            mtf_matched_concepts.append('H4 Bullish Structure')
+        elif h4_trend == 'BEARISH':
+            mtf_bearish_signals += 4
+            mtf_matched_concepts.append('H4 Bearish Structure')
+        
+        # H4-Daily alignment bonus
+        if h4_analysis['daily_alignment']:
+            mtf_matched_concepts.append('H4-Daily Alignment')
+            if h4_trend == 'BULLISH':
+                mtf_bullish_signals += 2
+            elif h4_trend == 'BEARISH':
+                mtf_bearish_signals += 2
+        
+        # H4 BOS/ChoCh signals
+        if h4_analysis['h4_bos_signals']:
+            latest_bos = h4_analysis['h4_bos_signals'][-1]
+            if latest_bos['type'] == 'BULLISH_BOS':
+                mtf_bullish_signals += 3
+                mtf_matched_concepts.append('H4 Bullish BOS')
+            elif latest_bos['type'] == 'BEARISH_BOS':
+                mtf_bearish_signals += 3
+                mtf_matched_concepts.append('H4 Bearish BOS')
+        
+        if h4_analysis['h4_choch_signals']:
+            latest_choch = h4_analysis['h4_choch_signals'][-1]
+            if latest_choch['type'] == 'BULLISH_CHOCH':
+                mtf_bullish_signals += 4  # ChoCh is stronger than BOS
+                mtf_matched_concepts.append('H4 Bullish ChoCh')
+            elif latest_choch['type'] == 'BEARISH_CHOCH':
+                mtf_bearish_signals += 4
+                mtf_matched_concepts.append('H4 Bearish ChoCh')
+        
+        # H1 Analysis Scoring (Medium weight - 3 points)
+        h1_range_position = h1_analysis['dealing_range_position']
+        if h1_range_position < 0.3:  # Low in range
+            mtf_bullish_signals += 2
+            mtf_matched_concepts.append('H1 Low in Dealing Range')
+        elif h1_range_position > 0.7:  # High in range
+            mtf_bearish_signals += 2
+            mtf_matched_concepts.append('H1 High in Dealing Range')
+        
+        # H1 H4 confluence
+        if h1_analysis['h4_confluence'] > 0:
+            mtf_matched_concepts.append(f'H1-H4 Level Confluence ({h1_analysis["h4_confluence"]} levels)')
+            mtf_bullish_signals += h1_analysis['h4_confluence']
+        
+        # M15 Entry Scenarios (High weight - 3-4 points)
+        entry_scenarios = m15_analysis['entry_scenarios']
+        for scenario in entry_scenarios:
+            if scenario['direction'] == 'BUY':
+                points = 4 if scenario['strength'] == 'HIGH' else 3
+                mtf_bullish_signals += points
+                mtf_matched_concepts.append(f"M15 {scenario['type']} (Entry)")
+            elif scenario['direction'] == 'SELL':
+                points = 4 if scenario['strength'] == 'HIGH' else 3
+                mtf_bearish_signals += points
+                mtf_matched_concepts.append(f"M15 {scenario['type']} (Entry)")
+        
+        # M15 Premium/Discount
+        m15_pd_zone = m15_analysis['premium_discount']['zone']
+        if m15_pd_zone == 'DISCOUNT':
+            mtf_bullish_signals += 2
+            mtf_matched_concepts.append('M15 Discount Zone')
+        elif m15_pd_zone == 'PREMIUM':
+            mtf_bearish_signals += 2
+            mtf_matched_concepts.append('M15 Premium Zone')
+        
+        # M5 Confirmation (Medium weight - 2-3 points)
+        confirmation_signals = m5_analysis['confirmation_signals']
+        for conf in confirmation_signals:
+            points = 3 if conf['confidence'] == 'HIGH' else 2
+            mtf_matched_concepts.append(f"M5 {conf['type']}")
+            # Direction determined by M15 scenario it's confirming
+            for scenario in entry_scenarios:
+                if scenario['type'] == conf['scenario']:
+                    if scenario['direction'] == 'BUY':
+                        mtf_bullish_signals += points
+                    elif scenario['direction'] == 'SELL':
+                        mtf_bearish_signals += points
+                    break
+        
+        # M5 Momentum confirmation
+        m5_momentum = m5_analysis['m5_momentum']
+        if m5_momentum['volume_confirmation']:
+            if m5_momentum['direction'] == 'BULLISH':
+                mtf_bullish_signals += 2
+                mtf_matched_concepts.append('M5 Bullish Momentum + Volume')
+            elif m5_momentum['direction'] == 'BEARISH':
+                mtf_bearish_signals += 2
+                mtf_matched_concepts.append('M5 Bearish Momentum + Volume')
+        
+        # Risk factor deductions
+        risk_level = m5_analysis['risk_level']
+        if risk_level == 'HIGH':
+            mtf_matched_concepts.append('M5 High Risk Factors (Reduced Confidence)')
+            # Reduce signals by 20%
+            mtf_bullish_signals = int(mtf_bullish_signals * 0.8)
+            mtf_bearish_signals = int(mtf_bearish_signals * 0.8)
+        elif risk_level == 'MEDIUM':
+            mtf_matched_concepts.append('M5 Medium Risk Factors')
+            # Reduce signals by 10%
+            mtf_bullish_signals = int(mtf_bullish_signals * 0.9)
+            mtf_bearish_signals = int(mtf_bearish_signals * 0.9)
+        
+        # Multi-timeframe confluence requirements
+        total_mtf_signals = mtf_bullish_signals + mtf_bearish_signals
+        
+        # Require minimum confluence from at least 3 timeframes
+        timeframe_participation = 0
+        if daily_bias != 'NEUTRAL': timeframe_participation += 1
+        if h4_trend != 'UNCLEAR': timeframe_participation += 1
+        if entry_scenarios: timeframe_participation += 1
+        if confirmation_signals: timeframe_participation += 1
+        
+        if total_mtf_signals < 2 or timeframe_participation < 1:  # LOWERED requirements for more signals
+            return None
+        
+        # Determine signal direction and confidence
+        if mtf_bullish_signals > mtf_bearish_signals:
+            signal_type = 'BUY'
+            confidence = min(98, (mtf_bullish_signals / max(total_mtf_signals, 1)) * 100)
+        else:
+            signal_type = 'SELL'
+            confidence = min(98, (mtf_bearish_signals / max(total_mtf_signals, 1)) * 100)
+        
+        # Enhanced precision from M5 analysis
+        entry_precision = m5_analysis['entry_precision']
+        if entry_precision == 'HIGH':
+            confidence += 2  # Bonus for precise entry
+        
+        # Calculate entry, stop loss, and take profit with MTF context
+        entry_price = current_price
+        
+        # Use M5 for precise stop loss
+        if m5_analysis['risk_factors']:
+            # Use rejection levels for tighter stops
+            if signal_type == 'BUY':
+                rejection_levels = [rf['level'] for rf in m5_analysis['risk_factors'] if rf['type'] == 'LOWER_REJECTION']
+                if rejection_levels:
+                    stop_loss = min(rejection_levels) * 0.999  # Just below rejection
+                else:
+                    stop_loss = current_price - (h1_analysis['intraday_range'] * 0.02)
+            else:
+                rejection_levels = [rf['level'] for rf in m5_analysis['risk_factors'] if rf['type'] == 'UPPER_REJECTION']
+                if rejection_levels:
+                    stop_loss = max(rejection_levels) * 1.001  # Just above rejection
+                else:
+                    stop_loss = current_price + (h1_analysis['intraday_range'] * 0.02)
+        else:
+            # Use H1 range for stops
+            if signal_type == 'BUY':
+                stop_loss = current_price - (h1_analysis['intraday_range'] * 0.025)
+            else:
+                stop_loss = current_price + (h1_analysis['intraday_range'] * 0.025)
+        
+        # Take profit based on daily range
+        stop_distance = abs(current_price - stop_loss)
+        if signal_type == 'BUY':
+            take_profit = current_price + (stop_distance * 3.0)  # 1:3 RR for MTF signals
+        else:
+            take_profit = current_price - (stop_distance * 3.0)
+        
+        # Multi-timeframe leverage calculation
+        base_leverage = min(Config.LEVERAGE_MAX, max(Config.LEVERAGE_MIN, int(confidence / 15)))
+        mtf_leverage = max(1, int(base_leverage / (volatility * 50)))  # More conservative for MTF
+        
+        # Add timeframe summary to concepts
+        mtf_matched_concepts.insert(0, f'Multi-Timeframe Analysis ({timeframe_participation}/5 TFs)')
+        
+        return SmartMoneySignal(
+            signal_type=signal_type,
+            confidence=confidence,
+            entry_price=entry_price,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            leverage=mtf_leverage,
+            matched_concepts=mtf_matched_concepts,
+            timestamp=pd.Timestamp.now(),  # Use current time instead of old data timestamp
+            symbol=symbol
+        )
