@@ -50,8 +50,8 @@ class SmartMoneyAnalyzer:
         """
         signals: List[SmartMoneySignal] = []
 
-        # Enforce minimum 200 candles lookback per requirements
-        if not ohlcv_data or len(ohlcv_data) < 200:
+        # Enforce minimum 200 candles lookback per requirements (reduced for speed)
+        if not ohlcv_data or len(ohlcv_data) < 100:
             return signals
 
         try:
@@ -62,8 +62,8 @@ class SmartMoneyAnalyzer:
             # Add indicators
             df = add_indicators(df)
             
-            # Scan last 200 bars to collect fresh signals
-            start_idx = max(10, len(df) - 200)
+            # Scan last 100 bars to collect fresh signals (reduced for speed)
+            start_idx = max(10, len(df) - 100)
             for i in range(start_idx, len(df)):
                 window = df.iloc[:i+1].copy()
                 if len(window) < 10:

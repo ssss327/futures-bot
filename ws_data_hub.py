@@ -29,6 +29,7 @@ class WebSocketDataHub:
         self._stop_event = asyncio.Event()
         self._subscriptions: Dict[Tuple[str, str], str] = {}  # (symbol, tf) -> stream key
         self._current_streams: List[str] = []
+        self._restart_lock = asyncio.Lock()
 
     @staticmethod
     def _to_stream_symbol(symbol: str) -> str:
@@ -42,17 +43,33 @@ class WebSocketDataHub:
             return
         stream = f"{self._to_stream_symbol(symbol)}@kline_{timeframe}"
         self._subscriptions[key] = stream
-        await self._restart_ws()
+        # Coalesce restarts by scheduling asynchronously
+        asyncio.create_task(self._restart_ws())
 
     async def unsubscribe(self, symbol: str, timeframe: str):
         key = (symbol, timeframe)
         if key not in self._subscriptions:
             return
         del self._subscriptions[key]
-        await self._restart_ws()
+        asyncio.create_task(self._restart_ws())
 
     def get_buffer(self, symbol: str, timeframe: str) -> List[List[float]]:
         return list(self._buffers.get((symbol, timeframe), deque()))
+
+    def seed_buffer(self, symbol: str, timeframe: str, candles: List[List[float]]):
+        """Seed or top-up the buffer with historical candles.
+        Expects candles as [timestamp_ms, open, high, low, close, volume].
+        """
+        key = (symbol, timeframe)
+        buf = self._buffers[key]
+        # ensure sorted by timestamp
+        candles_sorted = sorted(candles, key=lambda x: x[0])
+        existing_ts = set(c[0] for c in buf)
+        for c in candles_sorted:
+            if c and len(c) >= 6:
+                ts = int(c[0])
+                if ts not in existing_ts:
+                    buf.append([ts, float(c[1]), float(c[2]), float(c[3]), float(c[4]), float(c[5])])
 
     async def wait_for_update(self, symbol: str, timeframe: str, timeout: Optional[float] = None) -> bool:
         key = (symbol, timeframe)
@@ -77,21 +94,24 @@ class WebSocketDataHub:
                 pass
 
     async def _restart_ws(self):
-        # recompute streams and restart background task
-        streams = sorted(set(self._subscriptions.values()))
-        if streams == self._current_streams and self._ws_task and not self._ws_task.done():
-            return
-        self._current_streams = streams
-        if self._ws_task and not self._ws_task.done():
-            self._ws_task.cancel()
-            try:
-                await self._ws_task
-            except Exception:
-                pass
-        if not streams:
-            return
-        self._stop_event.clear()
-        self._ws_task = asyncio.create_task(self._run_ws(streams))
+        async with self._restart_lock:
+            # recompute streams and restart background task
+            streams = sorted(set(self._subscriptions.values()))
+            if streams == self._current_streams and self._ws_task and not self._ws_task.done():
+                return
+            self._current_streams = streams
+            if self._ws_task and not self._ws_task.done():
+                self._ws_task.cancel()
+                try:
+                    await self._ws_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    pass
+            if not streams:
+                return
+            self._stop_event.clear()
+            self._ws_task = asyncio.create_task(self._run_ws(streams))
 
     async def _run_ws(self, streams: List[str]):
         # build URL with combined streams
