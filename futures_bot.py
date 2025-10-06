@@ -7,6 +7,8 @@ from typing import List, Optional
 from config import Config
 from telegram_bot import TelegramSignalBot
 from smart_money_analyzer import SmartMoneyAnalyzer, SmartMoneySignal
+from ws_data_hub import WebSocketDataHub
+from trend_utils import detect_trend_and_consolidation
 
 
 class FuturesBot:
@@ -29,6 +31,7 @@ class FuturesBot:
         # Initialize components
         self.telegram_bot = TelegramSignalBot()
         self.analyzer = SmartMoneyAnalyzer(config=Config)
+        self.ws_hub = WebSocketDataHub(max_candles=1500)
         
         # Tracking variables
         self.last_analysis_time: Optional[datetime] = None
@@ -67,6 +70,15 @@ class FuturesBot:
             # Test exchange connection
             await self.exchange.load_markets()
             self.logger.info("✅ Binance Futures connection established")
+
+            # Subscribe to key timeframes for trend and signals
+            symbols = await self.get_top_symbols()
+            for sym in symbols:
+                # live signals timeframe (15m default)
+                await self.ws_hub.subscribe(sym, "15m")
+                # trend filters
+                await self.ws_hub.subscribe(sym, "4h")
+                await self.ws_hub.subscribe(sym, "1d")
 
             # Test Telegram connection
             if not await self.telegram_bot.test_connection():
@@ -114,12 +126,18 @@ class FuturesBot:
             return ['BTC/USDT', 'ETH/USDT', 'BNB/USDT']
 
     async def fetch_klines(self, symbol: str, timeframe: str = "15m", limit: int = 200) -> Optional[List[List[float]]]:
-        """Fetch OHLCV candles for a symbol"""
+        """Fetch OHLCV candles from WS buffer (no polling)."""
         try:
-            ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-            return ohlcv
+            buf = self.ws_hub.get_buffer(symbol, timeframe)
+            if not buf or len(buf) < limit:
+                # wait briefly for updates if buffer not filled yet
+                await self.ws_hub.wait_for_update(symbol, timeframe, timeout=5)
+                buf = self.ws_hub.get_buffer(symbol, timeframe)
+            if not buf:
+                return None
+            return buf[-limit:]
         except Exception as e:
-            self.logger.debug(f"Error fetching klines for {symbol}: {e}")
+            self.logger.debug(f"Error fetching klines from WS for {symbol}: {e}")
             return None
 
     async def analyze_and_signal(self):
@@ -141,9 +159,27 @@ class FuturesBot:
             for symbol in symbols:
                 try:
                     # Fetch market data (ensure enough for analysis)
-                    ohlcv_data = await self.fetch_klines(symbol, limit=200)
+                    ohlcv_data = await self.fetch_klines(symbol, timeframe=Config.DEFAULT_TF if hasattr(Config, 'DEFAULT_TF') else "15m", limit=200)
                     if not ohlcv_data or len(ohlcv_data) < 100:
                         continue
+
+                    # Trend filter using 1D and 4H
+                    d1 = self.ws_hub.get_buffer(symbol, "1d")
+                    h4 = self.ws_hub.get_buffer(symbol, "4h")
+                    if not d1 or not h4 or len(d1) < 200 or len(h4) < 200:
+                        # wait for sufficient history
+                        await self.ws_hub.wait_for_update(symbol, "4h", timeout=2)
+                        d1 = self.ws_hub.get_buffer(symbol, "1d")
+                        h4 = self.ws_hub.get_buffer(symbol, "4h")
+                    if not d1 or not h4:
+                        continue
+
+                    import pandas as pd
+                    df_d1 = pd.DataFrame(d1, columns=['timestamp','open','high','low','close','volume'])
+                    df_4h = pd.DataFrame(h4, columns=['timestamp','open','high','low','close','volume'])
+                    trend, is_range = detect_trend_and_consolidation(df_d1, df_4h)
+                    if is_range:
+                        continue  # skip consolidation
                     
                     # Analyze with SmartMoneyAnalyzer
                     symbol_signals = self.analyzer.analyze(symbol, ohlcv_data)

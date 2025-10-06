@@ -50,7 +50,8 @@ class SmartMoneyAnalyzer:
         """
         signals: List[SmartMoneySignal] = []
 
-        if not ohlcv_data or len(ohlcv_data) < 50:
+        # Enforce minimum 200 candles lookback per requirements
+        if not ohlcv_data or len(ohlcv_data) < 200:
             return signals
 
         try:
@@ -61,8 +62,8 @@ class SmartMoneyAnalyzer:
             # Add indicators
             df = add_indicators(df)
             
-            # Scan last 50 bars to collect fresh signals
-            start_idx = max(10, len(df) - 50)
+            # Scan last 200 bars to collect fresh signals
+            start_idx = max(10, len(df) - 200)
             for i in range(start_idx, len(df)):
                 window = df.iloc[:i+1].copy()
                 if len(window) < 10:
@@ -82,20 +83,26 @@ class SmartMoneyAnalyzer:
                     current_price = float(window["close"].iloc[-1])
                     timestamp = window["timestamp"].iloc[-1]
                     
-                    # Calculate entry, stop loss, and take profit with better R/R ratios
-                    sl_pct = CONFIG["SL_PCT"]  # 1%
-                    tp_pct = CONFIG["TP_PCT"] * 2  # 4% to achieve 4:1 R/R ratio
-                    
+                    # ATR-based SL/TP
+                    # Compute ATR14 quickly here
+                    df_tail = window.tail(250).copy()
+                    df_tail["prev_close"] = df_tail["close"].shift(1)
+                    df_tail["tr"] = (
+                        (df_tail["high"] - df_tail["low"]).abs()
+                        .combine((df_tail["high"] - df_tail["prev_close"]).abs(), max)
+                        .combine((df_tail["low"] - df_tail["prev_close"]).abs(), max)
+                    )
+                    atr14 = df_tail["tr"].rolling(14).mean().iloc[-1]
+
+                    entry_price = current_price
                     if direction == "BUY":
-                        entry_price = current_price
-                        stop_loss = current_price * (1 - sl_pct)
-                        take_profit = current_price * (1 + tp_pct)
                         signal_type = "BUY"
+                        stop_loss = entry_price - 1.5 * float(atr14)
+                        take_profit = entry_price + 3.0 * float(atr14)
                     else:
-                        entry_price = current_price
-                        stop_loss = current_price * (1 + sl_pct)
-                        take_profit = current_price * (1 - tp_pct)
                         signal_type = "SELL"
+                        stop_loss = entry_price + 1.5 * float(atr14)
+                        take_profit = entry_price - 3.0 * float(atr14)
                     
                     # Calculate leverage based on tier
                     leverage = max(1, 10 - tier * 2)  # Tier 1: 8x, Tier 2: 6x, Tier 3: 4x
