@@ -353,8 +353,12 @@ class QudoSMCStrategy:
         Full Qudo strategy analysis across all timeframes.
         Returns signal if all conditions are met, None otherwise.
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
         # Step 1: HTF Context
         htf_flow = self.detect_htf_order_flow(df_4h)
+        logger.debug(f"HTF Flow: {htf_flow}")
         
         if htf_flow == "NEUTRAL":
             return None
@@ -364,28 +368,41 @@ class QudoSMCStrategy:
         
         # Step 2: MTF Liquidity Grab
         liquidity_levels = self.detect_liquidity_levels(df_15m)
+        logger.debug(f"Liquidity levels found: {len(liquidity_levels)}")
         grabbed_level = self.check_liquidity_grab(df_15m, liquidity_levels, direction)
         
         if grabbed_level is None:
+            logger.debug(f"No liquidity grab for {direction}")
             return None
+        
+        logger.debug(f"Liquidity grabbed: {grabbed_level.level_type}")
         
         # Step 3: MTF BOS after liquidity grab
         bos_confirmed = self.detect_bos(df_15m, direction)
         
         if not bos_confirmed:
+            logger.debug(f"No BOS confirmed for {direction}")
             return None
+        
+        logger.debug("BOS confirmed")
         
         # Step 4: MTF POI in discount/premium
         poi = self.find_poi(df_15m, direction)
         
         if poi is None:
+            logger.debug(f"No valid POI found for {direction}")
             return None
+        
+        logger.debug(f"POI found: {poi.poi_type}")
         
         # Step 5: LTF CHoCH confirmation
         ltf_confirmed = self.check_ltf_choch(df_1m, poi, direction)
         
         if not ltf_confirmed:
+            logger.debug(f"No LTF CHoCH for {direction}")
             return None
+        
+        logger.debug("LTF CHoCH confirmed - FULL SETUP FOUND!")
         
         # All conditions met - generate signal
         current_price = float(df_1m['close'].iloc[-1])

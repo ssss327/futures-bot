@@ -182,7 +182,7 @@ class FuturesBot:
             # we can directly use major trading pairs
             major_pairs = [
                 'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT',
-                'ADA/USDT', 'AVAX/USDT', 'DOT/USDT', 'MATIC/USDT', 'LTC/USDT',
+                'ADA/USDT', 'AVAX/USDT', 'DOT/USDT', 'LTC/USDT', 'ATOM/USDT',
                 'ATOM/USDT', 'LINK/USDT', 'UNI/USDT', 'ICP/USDT', 'FIL/USDT',
                 'TRX/USDT', 'ETC/USDT', 'XLM/USDT', 'BCH/USDT', 'ALGO/USDT'
             ]

@@ -18,7 +18,7 @@ from futures_bot import FuturesBot
 def setup_logging():
     """Setup clean logging with minimal output"""
     logging.basicConfig(
-        level=logging.INFO,
+        level=logging.DEBUG,  # Changed to DEBUG to see strategy steps
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
             logging.StreamHandler(sys.stdout),
