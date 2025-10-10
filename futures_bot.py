@@ -38,6 +38,7 @@ class FuturesBot:
         # Tracking variables
         self.last_analysis_time: Optional[datetime] = None
         self.total_signals_sent = 0
+        self.recent_signal_symbols = {}  # Track {symbol: timestamp} to prevent duplicates
 
     async def run(self):
         """Main bot loop - runs analysis every UPDATE_INTERVAL_MINUTES"""
@@ -261,6 +262,15 @@ class FuturesBot:
         start_time = datetime.now()
         self.logger.info("🔍 Starting market analysis...")
         
+        # Clean up old symbol tracking (remove entries older than cooldown period)
+        current_time = datetime.now()
+        expired_symbols = [
+            sym for sym, ts in self.recent_signal_symbols.items()
+            if (current_time - ts).total_seconds() / 3600 > Config.SIGNAL_COOLDOWN_HOURS
+        ]
+        for sym in expired_symbols:
+            del self.recent_signal_symbols[sym]
+        
         signals_found = []
         signals_sent = []
         
@@ -290,6 +300,27 @@ class FuturesBot:
             
             self.logger.info(f"Collected {len(signals_found)} valid signals from parallel analysis")
 
+            # Filter out duplicate symbols (keep only one signal per symbol per cooldown period)
+            filtered_signals = []
+            current_time = datetime.now()
+            
+            for signal in signals_found:
+                symbol = signal.symbol
+                
+                # Check if we recently signaled this symbol
+                if symbol in self.recent_signal_symbols:
+                    last_signal_time = self.recent_signal_symbols[symbol]
+                    hours_since = (current_time - last_signal_time).total_seconds() / 3600
+                    
+                    if hours_since < Config.SIGNAL_COOLDOWN_HOURS:
+                        self.logger.info(f"Skipping {symbol}: signaled {hours_since:.1f}h ago (cooldown: {Config.SIGNAL_COOLDOWN_HOURS}h)")
+                        continue
+                
+                filtered_signals.append(signal)
+            
+            self.logger.info(f"After cooldown filter: {len(filtered_signals)} unique signals")
+            signals_found = filtered_signals
+
             # Sort signals by tier and quality (tier 1 first, then by score if available)
             signals_found.sort(key=lambda s: (s.tier, -len(s.matched_concepts)))
             
@@ -302,6 +333,8 @@ class FuturesBot:
                     if await self.telegram_bot.send_signal(signal):
                         signals_sent.append(signal)
                         self.total_signals_sent += 1
+                        # Mark this symbol as recently signaled
+                        self.recent_signal_symbols[signal.symbol] = datetime.now()
                 except Exception as e:
                     self.logger.error(f"Failed to send signal for {signal.symbol}: {e}")
             

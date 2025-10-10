@@ -43,6 +43,7 @@ class Config:
     # Signal Quality Parameters
     MIN_RR_RATIO = 1.5  # Minimum risk/reward for Qudo signals
     MAX_SIGNALS_PER_DAY = 6
+    SIGNAL_COOLDOWN_HOURS = 4  # Don't signal same token within 4 hours
     SLIPPAGE_PERCENT = 0.0003
     MAKER_TAKER_FEES = 0.0004
 
