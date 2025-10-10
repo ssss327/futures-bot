@@ -67,7 +67,7 @@ class TelegramSignalBot:
             return False
     
     def _format_signal_message(self, signal: SmartMoneySignal) -> str:
-        """Format trading signal for Telegram message"""
+        """Format Qudo SMC signal for Telegram message"""
         
         # Determine signal emoji and color
         if signal.signal_type == 'BUY':
@@ -87,11 +87,8 @@ class TelegramSignalBot:
         
         rr_ratio = reward / risk if risk > 0 else 0
         
-        # Format matched concepts
+        # Format Qudo components
         concepts_text = "\n".join([f"• {concept}" for concept in signal.matched_concepts])
-        
-        # Get base asset from symbol (e.g., BTC from BTC/USDT)
-        base_asset = signal.symbol.split('/')[0]
         
         # Determine appropriate decimal places based on price
         if signal.entry_price >= 100:
@@ -101,41 +98,26 @@ class TelegramSignalBot:
         else:
             price_decimals = 6
         
-        # Get tier information
-        tier_emojis = {1: "🔥", 2: "⚡️", 3: "⚠️"}
-        tier_names = {1: "High Confidence", 2: "Medium Confidence", 3: "Low Confidence"}
-        tier_emoji = tier_emojis.get(signal.tier, "❓")
-        tier_name = tier_names.get(signal.tier, "Unknown")
-        
-        # Tier-specific display (loosened filters note)
-        tier_requirements = "⚠️ Loosened filters active – expect more signals for testing."
-        
         # Create message
         message = f"""
-{tier_emoji} <b>TIER {signal.tier} ({tier_name})</b> {tier_emoji}
+{signal_emoji} <b>QUDO SMC SETUP</b> {signal_emoji}
 
-🎯 <b>Symbol:</b> {signal.symbol}
-{direction_emoji} <b>Direction:</b> {signal.signal_type}
-⚡ <b>Leverage:</b> {signal.leverage}x (0.25 Kelly)
+🎯 <b>{signal.symbol}</b> - {signal.signal_type}
+⚡ <b>Leverage:</b> {signal.leverage}x
 
 💰 <b>Trade Setup:</b>
 🎯 Entry: ${signal.entry_price:.{price_decimals}f}
 🛑 Stop Loss: ${signal.stop_loss:.{price_decimals}f}
-🎁 Take Profit 1 (40%): ${signal.entry_price + (signal.take_profit - signal.entry_price) * 0.33:.{price_decimals}f}
-🎁 Take Profit 2 (30%): ${signal.take_profit:.{price_decimals}f}
-📈 Trail (30%): Break-even + 1 ATR
+🎁 Take Profit: ${signal.take_profit:.{price_decimals}f}
 📈 Risk/Reward: 1:{rr_ratio:.2f}
 
-{tier_emoji} <b>TIER {signal.tier} REQUIREMENTS MET:</b>
-{tier_requirements}
-
-🧠 <b>Signal Components:</b>
+🧠 <b>Qudo Components:</b>
 {concepts_text}
 
 ⏰ <b>Time:</b> {signal.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC')}
-🕐 <b>Hierarchy:</b> D1 (Primary) → H4 (Structure) → M15/M5 (Confirmation)
+🕐 <b>Timeframes:</b> 4H (HTF) → 15m (MTF) → 1m (LTF)
 
-<i>⚠️ Tiered signal system ensures minimum {Config.MIN_SIGNALS_PER_RUN} signals per run. Loosened filters are active for testing. This is not financial advice.</i>
+<i>⚠️ Qudo SMC Strategy - High quality setups only. This is not financial advice.</i>
 """
         
         return message.strip()

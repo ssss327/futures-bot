@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Smart Money Futures Bot Launcher
+Qudo SMC Futures Bot Launcher
 
-Simply launches the FuturesBot which will:
+Launches the FuturesBot which will:
 - Analyze the market every UPDATE_INTERVAL_MINUTES
-- Generate signals using SmartMoneyAnalyzer
-- Send signals to Telegram
-- Log only essential information (no symbol list spam)
+- Generate signals using Qudo SMC Strategy (HTF→MTF→LTF)
+- Send high-quality setups to Telegram
+- Log essential information only
 """
 
 import asyncio
@@ -39,7 +39,7 @@ async def main():
     setup_logging()
     logger = logging.getLogger(__name__)
     
-    logger.info("🚀 Starting Smart Money Futures Bot...")
+    logger.info("🚀 Starting Qudo SMC Futures Bot...")
     
     try:
         bot = FuturesBot()

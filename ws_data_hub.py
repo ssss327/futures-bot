@@ -56,21 +56,6 @@ class WebSocketDataHub:
     def get_buffer(self, symbol: str, timeframe: str) -> List[List[float]]:
         return list(self._buffers.get((symbol, timeframe), deque()))
 
-    def seed_buffer(self, symbol: str, timeframe: str, candles: List[List[float]]):
-        """Seed or top-up the buffer with historical candles.
-        Expects candles as [timestamp_ms, open, high, low, close, volume].
-        """
-        key = (symbol, timeframe)
-        buf = self._buffers[key]
-        # ensure sorted by timestamp
-        candles_sorted = sorted(candles, key=lambda x: x[0])
-        existing_ts = set(c[0] for c in buf)
-        for c in candles_sorted:
-            if c and len(c) >= 6:
-                ts = int(c[0])
-                if ts not in existing_ts:
-                    buf.append([ts, float(c[1]), float(c[2]), float(c[3]), float(c[4]), float(c[5])])
-
     async def wait_for_update(self, symbol: str, timeframe: str, timeout: Optional[float] = None) -> bool:
         key = (symbol, timeframe)
         fut = asyncio.get_event_loop().create_future()
@@ -117,7 +102,7 @@ class WebSocketDataHub:
         # build URL with combined streams
         stream_param = "/".join(streams)
         url = f"{self.BASE_WS_URL}?streams={stream_param}"
-        self.logger.info(f"Connecting WS: {url}")
+        self.logger.info(f"Connecting WebSocket with {len(streams)} streams")
         backoff = 1.0
         while not self._stop_event.is_set():
             try:
