@@ -5,7 +5,7 @@ from telegram import Bot
 from telegram.error import TelegramError
 from typing import Optional
 from config import Config
-from smart_money_analyzer import SmartMoneySignal
+from signal_models import SmartMoneySignal
 
 class TelegramSignalBot:
     def __init__(self):

@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from config import Config
 from telegram_bot import TelegramSignalBot
-from smart_money_analyzer import SmartMoneySignal  # Keep dataclass only
+from signal_models import SmartMoneySignal
 from ws_data_hub import WebSocketDataHub
 from qudo_smc_strategy import QudoSMCStrategy
 
