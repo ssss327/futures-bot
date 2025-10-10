@@ -15,7 +15,7 @@ class Config:
     BINANCE_SECRET_KEY = os.getenv('BINANCE_SECRET_KEY')
 
     # Bot Configuration
-    UPDATE_INTERVAL_MINUTES = int(os.getenv('UPDATE_INTERVAL_MINUTES', 30))  # 30 minutes default
+    UPDATE_INTERVAL_MINUTES = int(os.getenv('UPDATE_INTERVAL_MINUTES', 30))
     LEVERAGE_MIN = int(os.getenv('LEVERAGE_MIN', 1))
     LEVERAGE_MAX = int(os.getenv('LEVERAGE_MAX', 10))
     RISK_PERCENTAGE = float(os.getenv('RISK_PERCENTAGE', 2))
@@ -25,18 +25,7 @@ class Config:
     QUDO_MTF_LOOKBACK = 200  # 15m bars for liquidity and setup
     QUDO_LTF_LOOKBACK = 100  # 1m bars for CHoCH confirmation
 
-    # Risk Management
-    DEFAULT_STOP_LOSS_PERCENTAGE = 2.0
-    DEFAULT_TAKE_PROFIT_RATIO = 2.0
-    VOLATILITY_CALCULATION_DAYS = 250
-    MAX_SIGNAL_AGE_MINUTES = 30
-
-    # Multi-Symbol Configuration
-    MAX_SYMBOLS_TO_MONITOR = int(os.getenv('MAX_SYMBOLS_TO_MONITOR', 50))  # Top X symbols by volume
-    SYMBOL_SCAN_INTERVAL_MINUTES = int(os.getenv('SYMBOL_SCAN_INTERVAL_MINUTES', 30))
-    CONCURRENT_ANALYSIS_LIMIT = int(os.getenv('CONCURRENT_ANALYSIS_LIMIT', 10))
-
-    # Symbol filtering
+    # Symbol Filtering
     EXCLUDED_SYMBOLS = os.getenv('EXCLUDED_SYMBOLS', 'USDC/USDT,BUSD/USDT,TUSD/USDT').split(',')
     MIN_24H_VOLUME_USDT = float(os.getenv('MIN_24H_VOLUME_USDT', 10000000))
 
@@ -47,30 +36,6 @@ class Config:
     SLIPPAGE_PERCENT = 0.0003
     MAKER_TAKER_FEES = 0.0004
 
-    # Debug flags
+    # Debug Flags
     DEBUG_MODE = True
     SAVE_REJECTED_SIGNALS = True
-
-    # -----------------------------
-    # AUTOLOAD SYMBOLS SECTION
-    # -----------------------------
-    AUTOLOAD_SYMBOLS = True  # если True → бот сам подгрузит список фьючерсных пар
-
-    @staticmethod
-    def get_symbols():
-        if Config.AUTOLOAD_SYMBOLS:
-            exchange = ccxt.binance({
-                "options": {"defaultType": "future"}
-            })
-            markets = exchange.load_markets()
-
-            usdt_pairs = [
-                s.replace("/", "")  # убираем слэш для вида BTCUSDT
-                for s in markets.keys()
-                if s.endswith("/USDT") and s not in Config.EXCLUDED_SYMBOLS
-            ]
-
-            return usdt_pairs[:Config.MAX_SYMBOLS_TO_MONITOR]
-        else:
-            # fallback если автозагрузка выключена
-            return ["BTCUSDT", "ETHUSDT"]
