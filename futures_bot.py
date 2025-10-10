@@ -8,7 +8,6 @@ from config import Config
 from telegram_bot import TelegramSignalBot
 from smart_money_analyzer import SmartMoneySignal  # Keep dataclass only
 from ws_data_hub import WebSocketDataHub
-from binance_vision_loader import BinanceVisionLoader
 from qudo_smc_strategy import QudoSMCStrategy
 
 
@@ -33,7 +32,6 @@ class FuturesBot:
         self.telegram_bot = TelegramSignalBot()
         self.qudo_strategy = QudoSMCStrategy()  # Only Qudo strategy now
         self.ws_hub = WebSocketDataHub(max_candles=1500)
-        self.vision = BinanceVisionLoader()
         
         # Tracking variables
         self.last_analysis_time: Optional[datetime] = None
@@ -84,9 +82,6 @@ class FuturesBot:
                 # Keep 1d for additional context
                 await self.ws_hub.subscribe(sym, "1d")
 
-            # Seed WS buffers with recent history (non-blocking)
-            asyncio.create_task(self._seed_historical_data(symbols))
-
             # Test Telegram connection
             if not await self.telegram_bot.test_connection():
                 self.logger.error("❌ Telegram connection failed")
@@ -98,31 +93,6 @@ class FuturesBot:
         except Exception as e:
             self.logger.error(f"❌ Initialization error: {e}")
             return False
-
-    async def _seed_historical_data(self, symbols):
-        """Seed historical data in background"""
-        try:
-            import pandas as pd
-            from datetime import datetime, timedelta
-            end_dt = datetime.utcnow()
-            start_dt_1d = end_dt - timedelta(days=400)
-            start_dt_4h = end_dt - timedelta(days=120)
-            start_dt_15m = end_dt - timedelta(days=15)
-            for sym in symbols:
-                start_dt_1m = end_dt - timedelta(days=3)
-                for tf, start_dt in [("1d", start_dt_1d), ("4h", start_dt_4h), ("15m", start_dt_15m), ("1m", start_dt_1m)]:
-                    try:
-                        df = await asyncio.wait_for(self.vision.load_range(sym, tf, start_dt, end_dt), timeout=10)
-                        if df is not None and not df.empty:
-                            rows = [[int(ts.value/1_000_000), float(r.open), float(r.high), float(r.low), float(r.close), float(r.volume)] for ts, r in df.iterrows()]
-                            self.ws_hub.seed_buffer(sym, tf, rows[-500:])
-                            self.logger.info(f"Seeded {len(rows[-500:])} candles for {sym} {tf}")
-                    except asyncio.TimeoutError:
-                        self.logger.warning(f"Timeout seeding {sym} {tf}")
-                    except Exception as e:
-                        self.logger.debug(f"Failed to seed {sym} {tf}: {e}")
-        except Exception as e:
-            self.logger.debug(f"Seed history failed: {e}")
 
     async def _analyze_symbol(self, symbol: str) -> List[SmartMoneySignal]:
         """Analyze a single symbol using Qudo SMC strategy"""
