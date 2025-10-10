@@ -79,8 +79,6 @@ class FuturesBot:
                 await self.ws_hub.subscribe(sym, "4h")
                 await self.ws_hub.subscribe(sym, "15m")
                 await self.ws_hub.subscribe(sym, "1m")
-                # Keep 1d for additional context
-                await self.ws_hub.subscribe(sym, "1d")
 
             # Test Telegram connection
             if not await self.telegram_bot.test_connection():
@@ -130,13 +128,12 @@ class FuturesBot:
             df_15m['timestamp'] = pd.to_datetime(df_15m['timestamp'], unit='ms')
             df_1m['timestamp'] = pd.to_datetime(df_1m['timestamp'], unit='ms')
             
-            self.logger.info(f"Analyzing {symbol} with Qudo strategy (4h:{len(df_4h)}, 15m:{len(df_15m)}, 1m:{len(df_1m)})")
+            self.logger.debug(f"Analyzing {symbol} (4h:{len(df_4h)}, 15m:{len(df_15m)}, 1m:{len(df_1m)})")
             
             # Run Qudo strategy analysis
             qudo_signal = self.qudo_strategy.analyze(df_4h, df_15m, df_1m)
             
             if qudo_signal is None:
-                self.logger.debug(f"No Qudo setup found for {symbol}")
                 return []
             
             # Convert QudoSignal to SmartMoneySignal
@@ -159,19 +156,16 @@ class FuturesBot:
                 filters_passed=["QudoSMC"]
             )
             
-            self.logger.info(f"✅ Qudo setup found for {symbol}: {qudo_signal.direction} from {qudo_signal.entry_price:.4f}")
+            self.logger.info(f"🎯 Qudo setup: {symbol} {qudo_signal.direction} @ {qudo_signal.entry_price:.4f} (SL:{qudo_signal.stop_loss:.4f}, TP:{qudo_signal.take_profit:.4f})")
             
             # Validate signal
             if self.is_valid_signal(smc_signal):
                 return [smc_signal]
             else:
-                self.logger.debug(f"Qudo signal rejected by validation for {symbol}")
                 return []
             
         except Exception as e:
             self.logger.debug(f"Error analyzing {symbol}: {e}")
-            import traceback
-            traceback.print_exc()
             return []
 
     def should_run_analysis(self) -> bool:
@@ -207,28 +201,8 @@ class FuturesBot:
             # Fallback to basic symbols
             return ['BTC/USDT', 'ETH/USDT', 'BNB/USDT']
 
-    async def fetch_klines(self, symbol: str, timeframe: str = "15m", limit: int = 200) -> Optional[List[List[float]]]:
-        """Fetch OHLCV candles from WS buffer with CCXT fallback."""
-        try:
-            buf = self.ws_hub.get_buffer(symbol, timeframe)
-            if not buf or len(buf) < limit:
-                # wait briefly for updates if buffer not filled yet
-                await self.ws_hub.wait_for_update(symbol, timeframe, timeout=2)
-                buf = self.ws_hub.get_buffer(symbol, timeframe)
-            
-            if buf and len(buf) >= limit:
-                return buf[-limit:]
-            
-            # Fallback to CCXT if WS buffer is empty
-            self.logger.debug(f"WS buffer empty for {symbol} {timeframe}, using CCXT fallback")
-            ohlcv = await self.exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-            return ohlcv
-        except Exception as e:
-            self.logger.debug(f"Error fetching klines for {symbol}: {e}")
-            return None
-
     async def analyze_and_signal(self):
-        """Main analysis loop: fetch data, analyze with SmartMoneyAnalyzer, send signals"""
+        """Main analysis loop: analyze symbols with Qudo strategy and send signals"""
         start_time = datetime.now()
         self.logger.info("🔍 Starting market analysis...")
         
@@ -327,19 +301,15 @@ class FuturesBot:
         try:
             # Basic validation
             if not signal.symbol or not signal.signal_type:
-                self.logger.info(f"Signal rejected: missing symbol or type")
                 return False
             
             if signal.entry_price <= 0 or signal.stop_loss <= 0 or signal.take_profit <= 0:
-                self.logger.info(f"Signal rejected: invalid prices - entry={signal.entry_price}, sl={signal.stop_loss}, tp={signal.take_profit}")
                 return False
             
-            # Check age (signals should be fresh) - more lenient for live signals
+            # Check age (signals should be fresh)
             if signal.timestamp:
                 age_minutes = (datetime.now() - signal.timestamp).total_seconds() / 60
-                # Allow up to 60 minutes for live analysis signals
                 if age_minutes > 60:
-                    self.logger.info(f"Signal rejected: too old - {age_minutes:.1f} minutes")
                     return False
             
             # Check risk/reward ratio
@@ -351,26 +321,23 @@ class FuturesBot:
                 reward = signal.entry_price - signal.take_profit
             
             if risk <= 0:
-                self.logger.info(f"Signal rejected: invalid risk - {risk}")
                 return False
                 
             rr_ratio = reward / risk
-            # Qudo signals use dynamic SL/TP based on liquidity pools
-            min_rr = Config.MIN_RR_RATIO
-            if rr_ratio < min_rr:
-                self.logger.info(f"Signal rejected: RR too low - {rr_ratio:.2f} < {min_rr}")
+            if rr_ratio < Config.MIN_RR_RATIO:
+                self.logger.debug(f"Signal rejected: {signal.symbol} RR={rr_ratio:.2f} < {Config.MIN_RR_RATIO}")
                 return False
             
-            self.logger.info(f"Signal ACCEPTED: {signal.symbol} {signal.signal_type} RR={rr_ratio:.2f}")
             return True
             
         except Exception as e:
-            self.logger.info(f"Signal rejected: validation error - {e}")
+            self.logger.debug(f"Validation error: {e}")
             return False
 
     async def stop(self):
         """Cleanup resources"""
         try:
+            await self.ws_hub.stop()
             await self.exchange.close()
             self.logger.info("✅ FuturesBot stopped")
         except Exception as e:
