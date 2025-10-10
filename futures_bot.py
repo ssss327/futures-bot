@@ -10,6 +10,7 @@ from smart_money_analyzer import SmartMoneyAnalyzer, SmartMoneySignal
 from ws_data_hub import WebSocketDataHub
 from trend_utils import detect_trend_and_consolidation
 from binance_vision_loader import BinanceVisionLoader
+from qudo_smc_strategy import QudoSMCStrategy
 
 
 class FuturesBot:
@@ -32,6 +33,7 @@ class FuturesBot:
         # Initialize components
         self.telegram_bot = TelegramSignalBot()
         self.analyzer = SmartMoneyAnalyzer(config=Config)
+        self.qudo_strategy = QudoSMCStrategy()
         self.ws_hub = WebSocketDataHub(max_candles=1500)
         self.vision = BinanceVisionLoader()
         
@@ -76,10 +78,11 @@ class FuturesBot:
             # Subscribe to key timeframes for trend and signals
             symbols = await self.get_top_symbols()
             for sym in symbols:
-                # live signals timeframe (15m default)
-                await self.ws_hub.subscribe(sym, "15m")
-                # trend filters
+                # Qudo strategy timeframes: 4H (HTF), 15m (MTF), 1m (LTF)
                 await self.ws_hub.subscribe(sym, "4h")
+                await self.ws_hub.subscribe(sym, "15m")
+                await self.ws_hub.subscribe(sym, "1m")
+                # Keep 1d for additional context
                 await self.ws_hub.subscribe(sym, "1d")
 
             # Seed WS buffers with recent history (non-blocking)
@@ -107,7 +110,8 @@ class FuturesBot:
             start_dt_4h = end_dt - timedelta(days=120)
             start_dt_15m = end_dt - timedelta(days=15)
             for sym in symbols:
-                for tf, start_dt in [("1d", start_dt_1d), ("4h", start_dt_4h), ("15m", start_dt_15m)]:
+                start_dt_1m = end_dt - timedelta(days=3)
+                for tf, start_dt in [("1d", start_dt_1d), ("4h", start_dt_4h), ("15m", start_dt_15m), ("1m", start_dt_1m)]:
                     try:
                         df = await asyncio.wait_for(self.vision.load_range(sym, tf, start_dt, end_dt), timeout=10)
                         if df is not None and not df.empty:
@@ -122,58 +126,83 @@ class FuturesBot:
             self.logger.debug(f"Seed history failed: {e}")
 
     async def _analyze_symbol(self, symbol: str) -> List[SmartMoneySignal]:
-        """Analyze a single symbol and return valid signals"""
+        """Analyze a single symbol using Qudo SMC strategy"""
         try:
-            # Fetch market data (ensure enough for analysis)
-            ohlcv_data = await self.fetch_klines(symbol, timeframe=Config.DEFAULT_TF if hasattr(Config, 'DEFAULT_TF') else "15m", limit=200)
-            if not ohlcv_data or len(ohlcv_data) < 100:
-                self.logger.debug(f"Skipping {symbol}: insufficient data ({len(ohlcv_data) if ohlcv_data else 0} candles)")
-                return []
-
-            # Trend filter using 1D and 4H (temporarily disabled for debugging)
-            d1 = self.ws_hub.get_buffer(symbol, "1d")
-            h4 = self.ws_hub.get_buffer(symbol, "4h")
-            if not d1 or not h4 or len(d1) < 200 or len(h4) < 200:
-                # wait for sufficient history
-                await self.ws_hub.wait_for_update(symbol, "4h", timeout=2)
-                d1 = self.ws_hub.get_buffer(symbol, "1d")
-                h4 = self.ws_hub.get_buffer(symbol, "4h")
-            if not d1 or not h4:
-                return []
-            # Temporarily disable trend filter for debugging
-            # import pandas as pd
-            # df_d1 = pd.DataFrame(d1, columns=['timestamp','open','high','low','close','volume'])
-            # df_4h = pd.DataFrame(h4, columns=['timestamp','open','high','low','close','volume'])
-            # trend, is_range = detect_trend_and_consolidation(df_d1, df_4h)
-            # if is_range:
-            #     return []  # skip consolidation
-
-            self.logger.info(f"Analyzing {symbol} with {len(ohlcv_data)} candles")
-
-            # Analyze with SmartMoneyAnalyzer
-            symbol_signals = self.analyzer.analyze(symbol, ohlcv_data)
-            self.logger.info(f"Found {len(symbol_signals)} raw signals for {symbol}")
+            # Fetch all required timeframes for Qudo strategy
+            buf_4h = self.ws_hub.get_buffer(symbol, "4h")
+            buf_15m = self.ws_hub.get_buffer(symbol, "15m")
+            buf_1m = self.ws_hub.get_buffer(symbol, "1m")
             
-            # Filter valid signals
-            valid_signals = []
-            for signal in symbol_signals:
-                if self.is_valid_signal(signal):
-                    valid_signals.append(signal)
-                else:
-                    # Calculate RR for debugging
-                    if signal.signal_type == 'BUY':
-                        risk = signal.entry_price - signal.stop_loss
-                        reward = signal.take_profit - signal.entry_price
-                    else:
-                        risk = signal.stop_loss - signal.entry_price
-                        reward = signal.entry_price - signal.take_profit
-                    rr = reward / risk if risk > 0 else 0
-                    self.logger.info(f"Signal rejected for {signal.symbol}: RR={rr:.2f}, entry={signal.entry_price:.4f}, sl={signal.stop_loss:.4f}, tp={signal.take_profit:.4f}")
+            # Fallback to CCXT if buffers not filled
+            if not buf_4h or len(buf_4h) < 50:
+                ohlcv_4h = await self.exchange.fetch_ohlcv(symbol, timeframe="4h", limit=100)
+                buf_4h = ohlcv_4h if ohlcv_4h else []
             
-            return valid_signals
+            if not buf_15m or len(buf_15m) < 100:
+                ohlcv_15m = await self.exchange.fetch_ohlcv(symbol, timeframe="15m", limit=200)
+                buf_15m = ohlcv_15m if ohlcv_15m else []
+            
+            if not buf_1m or len(buf_1m) < 50:
+                ohlcv_1m = await self.exchange.fetch_ohlcv(symbol, timeframe="1m", limit=100)
+                buf_1m = ohlcv_1m if ohlcv_1m else []
+            
+            # Check if we have enough data
+            if len(buf_4h) < 50 or len(buf_15m) < 100 or len(buf_1m) < 50:
+                self.logger.debug(f"Skipping {symbol}: insufficient data (4h:{len(buf_4h)}, 15m:{len(buf_15m)}, 1m:{len(buf_1m)})")
+                return []
+            
+            # Convert to DataFrames
+            import pandas as pd
+            df_4h = pd.DataFrame(buf_4h, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df_15m = pd.DataFrame(buf_15m, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df_1m = pd.DataFrame(buf_1m, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            
+            df_4h['timestamp'] = pd.to_datetime(df_4h['timestamp'], unit='ms')
+            df_15m['timestamp'] = pd.to_datetime(df_15m['timestamp'], unit='ms')
+            df_1m['timestamp'] = pd.to_datetime(df_1m['timestamp'], unit='ms')
+            
+            self.logger.info(f"Analyzing {symbol} with Qudo strategy (4h:{len(df_4h)}, 15m:{len(df_15m)}, 1m:{len(df_1m)})")
+            
+            # Run Qudo strategy analysis
+            qudo_signal = self.qudo_strategy.analyze(df_4h, df_15m, df_1m)
+            
+            if qudo_signal is None:
+                self.logger.debug(f"No Qudo setup found for {symbol}")
+                return []
+            
+            # Convert QudoSignal to SmartMoneySignal
+            smc_signal = SmartMoneySignal(
+                symbol=symbol,
+                signal_type=qudo_signal.direction,
+                entry_price=qudo_signal.entry_price,
+                stop_loss=qudo_signal.stop_loss,
+                take_profit=qudo_signal.take_profit,
+                leverage=5,  # Default leverage
+                timestamp=datetime.now(),
+                tier=1,  # Qudo signals are high quality
+                matched_concepts=[
+                    f"HTF:{qudo_signal.htf_context}",
+                    f"LIQ:{qudo_signal.liquidity_grabbed}",
+                    f"BOS:confirmed",
+                    f"POI:{qudo_signal.poi.poi_type}",
+                    "LTF:CHoCH"
+                ],
+                filters_passed=["QudoSMC"]
+            )
+            
+            self.logger.info(f"✅ Qudo setup found for {symbol}: {qudo_signal.direction} from {qudo_signal.entry_price:.4f}")
+            
+            # Validate signal
+            if self.is_valid_signal(smc_signal):
+                return [smc_signal]
+            else:
+                self.logger.debug(f"Qudo signal rejected by validation for {symbol}")
+                return []
             
         except Exception as e:
             self.logger.debug(f"Error analyzing {symbol}: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
     def should_run_analysis(self) -> bool:
