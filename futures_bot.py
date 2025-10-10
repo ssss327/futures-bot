@@ -6,9 +6,8 @@ from typing import List, Optional
 
 from config import Config
 from telegram_bot import TelegramSignalBot
-from smart_money_analyzer import SmartMoneyAnalyzer, SmartMoneySignal
+from smart_money_analyzer import SmartMoneySignal  # Keep dataclass only
 from ws_data_hub import WebSocketDataHub
-from trend_utils import detect_trend_and_consolidation
 from binance_vision_loader import BinanceVisionLoader
 from qudo_smc_strategy import QudoSMCStrategy
 
@@ -32,8 +31,7 @@ class FuturesBot:
         
         # Initialize components
         self.telegram_bot = TelegramSignalBot()
-        self.analyzer = SmartMoneyAnalyzer(config=Config)
-        self.qudo_strategy = QudoSMCStrategy()
+        self.qudo_strategy = QudoSMCStrategy()  # Only Qudo strategy now
         self.ws_hub = WebSocketDataHub(max_candles=1500)
         self.vision = BinanceVisionLoader()
         
@@ -224,11 +222,11 @@ class FuturesBot:
                 'TRX/USDT', 'ETC/USDT', 'XLM/USDT', 'BCH/USDT', 'ALGO/USDT'
             ]
             
-            # Filter out excluded symbols and limit to max (reduced for speed)
+            # Filter out excluded symbols and limit to top pairs
             available_symbols = [
                 symbol for symbol in major_pairs 
                 if symbol not in Config.EXCLUDED_SYMBOLS
-            ][:5]  # Only analyze top 5 symbols for speed
+            ][:10]  # Analyze top 10 liquid pairs for quality setups
             
             self.logger.info(f"📊 Selected {len(available_symbols)} major futures pairs for analysis")
             return available_symbols
@@ -316,12 +314,7 @@ class FuturesBot:
                 f"in {analysis_duration:.1f}s"
             )
             
-            # Ensure minimum signals warning
-            if len(signals_found) < Config.MIN_SIGNALS_PER_RUN:
-                self.logger.warning(
-                    f"⚠️ Only {len(signals_found)} signals found, "
-                    f"expected at least {Config.MIN_SIGNALS_PER_RUN}"
-                )
+            # Note: Qudo strategy is selective, fewer signals = higher quality
 
         except Exception as e:
             self.logger.error(f"❌ Error in analyze_and_signal: {e}")
@@ -359,8 +352,8 @@ class FuturesBot:
                 return False
                 
             rr_ratio = reward / risk
-            # Temporarily lower threshold for debugging
-            min_rr = 1.0
+            # Qudo signals use dynamic SL/TP based on liquidity pools
+            min_rr = Config.MIN_RR_RATIO
             if rr_ratio < min_rr:
                 self.logger.info(f"Signal rejected: RR too low - {rr_ratio:.2f} < {min_rr}")
                 return False

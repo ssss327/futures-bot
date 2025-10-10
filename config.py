@@ -20,12 +20,10 @@ class Config:
     LEVERAGE_MAX = int(os.getenv('LEVERAGE_MAX', 10))
     RISK_PERCENTAGE = float(os.getenv('RISK_PERCENTAGE', 2))
 
-    # FIXED: Smart Money Configuration - Practical thresholds
-    SMC_LOOKBACK_PERIODS = 100
-    ORDER_BLOCK_THRESHOLD = 1.5
-    FVG_MIN_SIZE = 0.05
-    LIQUIDITY_THRESHOLD = 1.3
-    MARKET_STRUCTURE_PERIODS = 20
+    # Qudo SMC Strategy Configuration
+    QUDO_HTF_LOOKBACK = 50  # 4H bars for Order Flow detection
+    QUDO_MTF_LOOKBACK = 200  # 15m bars for liquidity and setup
+    QUDO_LTF_LOOKBACK = 100  # 1m bars for CHoCH confirmation
 
     # Risk Management
     DEFAULT_STOP_LOSS_PERCENTAGE = 2.0
@@ -42,26 +40,11 @@ class Config:
     EXCLUDED_SYMBOLS = os.getenv('EXCLUDED_SYMBOLS', 'USDC/USDT,BUSD/USDT,TUSD/USDT').split(',')
     MIN_24H_VOLUME_USDT = float(os.getenv('MIN_24H_VOLUME_USDT', 10000000))
 
-    # Enhanced Signal Accuracy Parameters
-    CONFLUENCE_THRESHOLD = 20
-    MIN_TIMEFRAMES_FOR_SIGNAL = 5
-    REQUIRE_D1_ALIGNMENT = True
-    MIN_RR_RATIO = 3.0
-    VOLUME_CONFIRM_MULTIPLIER = 1.5
+    # Signal Quality Parameters
+    MIN_RR_RATIO = 1.5  # Minimum risk/reward for Qudo signals
     MAX_SIGNALS_PER_DAY = 6
     SLIPPAGE_PERCENT = 0.0003
     MAKER_TAKER_FEES = 0.0004
-    MIN_FILL_LIQUIDITY = 5000000
-
-    # Weighted Scoring
-    WEIGHT_D1_BIAS = 6
-    WEIGHT_H4_BOS_OB = 5
-    WEIGHT_VOLUME_SPIKE_BOS = 4
-    WEIGHT_M15_OB_REJECTION = 3
-    WEIGHT_M5_MOMENTUM = 2
-
-    # Tiered Signal System
-    MIN_SIGNALS_PER_RUN = 10
 
     # Debug flags
     DEBUG_MODE = True
